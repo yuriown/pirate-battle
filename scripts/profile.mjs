@@ -7,6 +7,20 @@
 //
 // Usage: npm run profile [-- --skip-build] [-- --headless] [-- --no-1080p] [-- --duration=180]
 //        [-- --cycles=5] [-- --cycle-play=20]
+//        [-- --stress] [-- --stress-only] [-- --stress-duration=60]
+//        [-- --only-1080p] [-- --out=profile-results-1080p-rerun.json]
+//
+// --stress        after the normal runs, also run the worst-case stress test (below).
+// --stress-only   run only the stress test (no normal matches, no memory cycles).
+// --only-1080p    normal runs: skip the 720p match (combine with --skip-memory to re-run just 1080p).
+// --out=FILE      write the normal results to docs/performance/FILE instead of profile-results.json
+//                 (per-second CSVs then get a matching `-rerun` suffix so earlier data is kept).
+//
+// Stress test: `?e2e&seed=42&spawns=off` disables the automatic spawner and the script keeps
+// exactly `maxAlive` (10) enemies alive by topping them up every 250 ms through the test API
+// (`spawnEnemy`), alternating chaser/shooter, at arena-edge points away from the player and the
+// obstacles. Measured for --stress-duration seconds of active play at 1280x720 and at 1920x1080.
+// Results: profile-results-stress.json and per-second-stress-720p.csv / per-second-stress-1080p.csv.
 //
 // Nothing here changes game code: it only uses the `?e2e` instrumentation (window.__PB__).
 
@@ -30,10 +44,20 @@ const opt = (name, def) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? Number(hit.split('=')[1]) : def;
 };
+const optStr = (name, def) => {
+  const hit = argv.find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3) : def;
+};
 const CFG = {
   skipBuild: flag('skip-build'),
   headless: flag('headless'),
+  with720p: !flag('only-1080p'),
   with1080p: !flag('no-1080p'),
+  stress: flag('stress') || flag('stress-only'),
+  stressOnly: flag('stress-only'),
+  stressDurationSec: opt('stress-duration', 60),
+  stressMaxAlive: 10, // DEFAULT_GAMEPLAY.spawn.maxAlive (src/game/config.ts)
+  outFile: optStr('out', 'profile-results.json'),
   durationSec: opt('duration', 180),
   spawnIntervalSec: 3,
   cycles: opt('cycles', 5),
@@ -299,8 +323,8 @@ async function readEnvironment(page, browser, mode) {
 
 // ------------------------------------------------------------------ in-page helpers
 
-async function gotoMenu(page) {
-  await page.goto(`${BASE}/?e2e&seed=${SEED}`, { waitUntil: 'load' });
+async function gotoMenu(page, extraQuery = '') {
+  await page.goto(`${BASE}/?e2e&seed=${SEED}${extraQuery}`, { waitUntil: 'load' });
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
@@ -352,6 +376,78 @@ const stopRafProbe = (page) =>
     if (!p) return [];
     p.running = false;
     return p.deltas;
+  });
+
+/**
+ * Stress mode (page must be loaded with `spawns=off`): every 250 ms, while the match is running and
+ * the player is afloat, spawns enemies through the test API until exactly `maxAlive` are alive.
+ * Kinds alternate chaser/shooter. Points are drawn like the game's own spawner (arena edges, 70 units
+ * in), at least 560 units from the player, clear of the obstacles (arena.ts colliders as plain
+ * rectangles padded by 80) and at least 110 units from other enemies. Deterministic PRNG (seed 42).
+ */
+const installStressSpawner = (page, maxAlive) =>
+  page.evaluate((maxAlive) => {
+    const W = 1920;
+    const H = 1080;
+    const M = 70;
+    const MIN_PLAYER_DIST = 560;
+    const PAD = 80;
+    // [x0, x1, y0, y1] of the colliders in src/game/sim/arena.ts (islands, then rocks).
+    const OBST = [
+      [1228, 1460, 108, 340], [844, 1076, 396, 628], [234, 406, 586, 758], [1514, 1686, 714, 886],
+      [492, 532, 190, 228], [1644, 1684, 462, 500], [588, 628, 942, 980],
+    ];
+    let seed = 42;
+    const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const st = (window.__stress = { spawned: 0, noPointTicks: 0, ticks: 0, running: true, next: 0 });
+    const candidate = () => {
+      const side = Math.floor(rnd() * 4);
+      const along = rnd();
+      const x = side === 1 ? W - M : side === 3 ? M : M + along * (W - 2 * M);
+      const y = side === 0 ? M : side === 2 ? H - M : M + along * (H - 2 * M);
+      return { x, y };
+    };
+    const tick = () => {
+      if (!st.running) return;
+      const g = window.__PB__?.game;
+      if (!g) return;
+      const s = g.getState();
+      if (s.hud.status !== 'running' || s.player.health <= 0) return;
+      st.ticks++;
+      const p = s.player;
+      const taken = s.enemies.map((e) => ({ x: e.x, y: e.y }));
+      let need = maxAlive - s.enemies.length;
+      while (need > 0) {
+        let pos = null;
+        for (let i = 0; i < 64 && !pos; i++) {
+          const c = candidate();
+          if (Math.hypot(c.x - p.x, c.y - p.y) < MIN_PLAYER_DIST) continue;
+          if (OBST.some(([x0, x1, y0, y1]) => c.x > x0 - PAD && c.x < x1 + PAD && c.y > y0 - PAD && c.y < y1 + PAD)) continue;
+          if (taken.some((t) => Math.hypot(c.x - t.x, c.y - t.y) < 110)) continue;
+          pos = c;
+        }
+        if (!pos) {
+          st.noPointTicks++;
+          break;
+        }
+        const kind = st.next++ % 2 === 0 ? 'chaser' : 'shooter';
+        g.spawnEnemy(kind, pos.x, pos.y, Math.atan2(p.y - pos.y, p.x - pos.x));
+        taken.push(pos);
+        st.spawned++;
+        need--;
+      }
+    };
+    st.timer = setInterval(tick, 250);
+    tick();
+  }, maxAlive);
+
+const stopStressSpawner = (page) =>
+  page.evaluate(() => {
+    const st = window.__stress;
+    if (!st) return null;
+    st.running = false;
+    clearInterval(st.timer);
+    return { spawned: st.spawned, ticks: st.ticks, noPointTicks: st.noPointTicks };
   });
 
 /** Long rAF gaps (> 50 ms) with their position in the run, to separate hitches from throttling. */
@@ -479,6 +575,26 @@ function startDriver(page, pattern) {
   };
 }
 
+/**
+ * Stress runs only: per-second rAF statistics (frames, max, > 16.7 ms, > 50 ms since the previous
+ * sample) plus the spawner's top-up count, so hitches can be lined up with kills and restarts.
+ */
+const perSecondStressExtras = (page) =>
+  page.evaluate(() => {
+    const p = window.__rafProbe;
+    const st = window.__stress;
+    const from = p.__lastIdx ?? 0;
+    const slice = p.deltas.slice(from);
+    p.__lastIdx = p.deltas.length;
+    return {
+      rafFrames: slice.length,
+      rafMaxMs: slice.length ? Math.round(Math.max(...slice) * 10) / 10 : null,
+      rafOver16_7: slice.filter((d) => d > 1000 / 60).length,
+      rafOver50: slice.filter((d) => d > 50).length,
+      topUps: st?.spawned ?? null,
+    };
+  });
+
 // ------------------------------------------------------------------ 3-minute match
 
 /**
@@ -487,12 +603,13 @@ function startDriver(page, pattern) {
  * in-place restart path) and keeps measuring until the cumulative active play time reaches the
  * target, so the frame/entity statistics always cover a full three minutes of combat.
  */
-async function runMatch(browser, { label, viewport, pattern }) {
-  log(`Match "${label}" (${viewport.width}x${viewport.height}, pattern=${pattern}, ${CFG.durationSec} s)...`);
+async function runMatch(browser, { label, viewport, pattern, durationSec = CFG.durationSec, extraQuery = '', stressMaxAlive = 0 }) {
+  log(`Match "${label}" (${viewport.width}x${viewport.height}, pattern=${pattern}, ${durationSec} s${stressMaxAlive ? `, stress: ${stressMaxAlive} enemies alive` : ''})...`);
   const machineBefore = await waitForQuietMachine();
   const { context, page, consoleErrors } = await newPage(browser, viewport);
-  await gotoMenu(page);
+  await gotoMenu(page, extraQuery);
   await startMatchFromMenu(page);
+  if (stressMaxAlive) await installStressSpawner(page, stressMaxAlive);
 
   const pixiSamples = [];
   const pullFrameStats = async () => {
@@ -516,7 +633,7 @@ async function runMatch(browser, { label, viewport, pattern }) {
   const pauses = [];
   let lastPull = Date.now();
   let final;
-  const wallLimitMs = (CFG.durationSec + 180) * 1000;
+  const wallLimitMs = (durationSec + 180) * 1000;
   const segments = [];
   let doneTime = 0; // active game time of finished segments
 
@@ -527,7 +644,8 @@ async function runMatch(browser, { label, viewport, pattern }) {
       final = { error: 'test API disappeared' };
       break;
     }
-    perSecond.push({ wallSec: round((Date.now() - wallStart) / 1000, 2), ...s, timeSec: round(s.timeSec, 2), health: round(s.health, 1) });
+    const extra = stressMaxAlive ? await perSecondStressExtras(page) : {};
+    perSecond.push({ wallSec: round((Date.now() - wallStart) / 1000, 2), ...s, timeSec: round(s.timeSec, 2), health: round(s.health, 1), ...extra });
     if (s.status === 'paused') {
       const clues = await page.evaluate(() => window.__pauseClues?.slice(-5) ?? []);
       pauses.push({ atGameSec: round(s.timeSec, 2), reason: s.pauseReason, clues });
@@ -544,7 +662,7 @@ async function runMatch(browser, { label, viewport, pattern }) {
     if (s.status === 'ended') {
       segments.push({ matchIndex: s.matchIndex, endReason: s.endReason, gameTimeSec: round(s.timeSec, 2), score: s.score, kills: s.kills, rams: s.rams, damageTaken: s.damageTaken });
       doneTime += s.timeSec;
-      if (s.endReason === 'destroyed' && doneTime < CFG.durationSec - 0.5) {
+      if (s.endReason === 'destroyed' && doneTime < durationSec - 0.5) {
         log(`  player destroyed at ${s.timeSec.toFixed(1)} s (cumulative ${doneTime.toFixed(1)} s), Play Again`);
         await page.getByTestId('result-dialog').getByRole('button', { name: 'Play Again' }).click({ timeout: 10_000 });
         await page.waitForFunction(() => window.__PB__?.game?.getState().hud.status === 'running', null, { timeout: 10_000 });
@@ -555,7 +673,7 @@ async function runMatch(browser, { label, viewport, pattern }) {
       final = s;
       break;
     }
-    if (doneTime + s.timeSec >= CFG.durationSec) {
+    if (doneTime + s.timeSec >= durationSec) {
       segments.push({ matchIndex: s.matchIndex, endReason: null, stillRunning: true, gameTimeSec: round(s.timeSec, 2), score: s.score, kills: s.kills, rams: s.rams, damageTaken: s.damageTaken });
       doneTime += s.timeSec;
       final = { ...s, note: 'measurement window complete while the (restarted) match was still running' };
@@ -568,6 +686,7 @@ async function runMatch(browser, { label, viewport, pattern }) {
     if (perSecond.length % 30 === 0) log(`  cumulative=${(doneTime + s.timeSec).toFixed(0)} s t=${s.timeSec.toFixed(0)} s enemies=${s.enemies} projectiles=${s.projectiles} hp=${s.health.toFixed(0)} score=${s.score}`);
   }
   await driver.stop();
+  const stress = stressMaxAlive ? await stopStressSpawner(page) : null;
   const rafDeltas = await stopRafProbe(page);
   await pullFrameStats();
   const wallSec = (Date.now() - wallStart) / 1000;
@@ -582,7 +701,10 @@ async function runMatch(browser, { label, viewport, pattern }) {
     viewport,
     deviceScaleFactor: 1,
     pattern,
-    config: { sessionDurationSec: CFG.durationSec, spawnIntervalSec: CFG.spawnIntervalSec, seed: SEED, clock: 'real' },
+    config: stressMaxAlive
+      ? { mode: 'stress', url: `/?e2e&seed=${SEED}${extraQuery}`, measuredActiveSec: durationSec, targetEnemiesAlive: stressMaxAlive, topUpEveryMs: 250, sessionDurationSec: CFG.durationSec, seed: SEED, clock: 'real' }
+      : { sessionDurationSec: CFG.durationSec, spawnIntervalSec: CFG.spawnIntervalSec, seed: SEED, clock: 'real' },
+    stressSpawner: stress,
     outcome: {
       endReason: final?.endReason ?? null,
       error: final?.error ?? null,
@@ -772,8 +894,10 @@ async function runMemoryCycles(browser) {
 
 // ------------------------------------------------------------------ main
 
-function toCsv(run) {
-  const cols = ['wallSec', 'timeSec', 'status', 'enemies', 'projectiles', 'displayObjects', 'health', 'score', 'kills', 'rams', 'damageTaken'];
+const CSV_COLS = ['wallSec', 'timeSec', 'status', 'enemies', 'projectiles', 'displayObjects', 'health', 'score', 'kills', 'rams', 'damageTaken'];
+const STRESS_CSV_COLS = [...CSV_COLS, 'topUps', 'rafFrames', 'rafMaxMs', 'rafOver16_7', 'rafOver50'];
+
+function toCsv(run, cols = CSV_COLS) {
   return [cols.join(','), ...run.perSecond.map((r) => cols.map((c) => r[c]).join(','))].join('\n') + '\n';
 }
 
@@ -783,8 +907,12 @@ async function main() {
   log('Starting vite preview...');
   const server = await startPreview();
   let browser;
+  const runNormal = !CFG.stressOnly;
   const results = { generatedBy: 'scripts/profile.mjs', config: CFG, environment: null, matches: [], memory: null, notes: [] };
-  const save = () => writeFileSync(path.join(OUT_DIR, 'profile-results.json'), JSON.stringify(results, null, 2));
+  const stressResults = { generatedBy: 'scripts/profile.mjs --stress', config: CFG, environment: null, runs: [], notes: [] };
+  const rerun = CFG.outFile !== 'profile-results.json';
+  const save = () => runNormal && writeFileSync(path.join(OUT_DIR, CFG.outFile), JSON.stringify(results, null, 2));
+  const saveStress = () => CFG.stress && writeFileSync(path.join(OUT_DIR, 'profile-results-stress.json'), JSON.stringify(stressResults, null, 2));
   try {
     const launched = await launchBrowser();
     browser = launched.browser;
@@ -792,25 +920,42 @@ async function main() {
       const { context, page } = await newPage(browser, { width: 1280, height: 720 });
       await gotoMenu(page);
       results.environment = await readEnvironment(page, browser, launched.mode);
+      stressResults.environment = results.environment;
       await context.close();
     }
     log('Environment:', results.environment.browser.mode, results.environment.browser.version, '|', results.environment.page.webgl.renderer);
     save();
 
     const hd = { width: 1280, height: 720 };
+    const full = { width: 1920, height: 1080 };
     const chosen = 'aim';
-    results.matches.push(await runMatch(browser, { label: '720p-aim', viewport: hd, pattern: chosen }));
-    save();
-    if (CFG.with1080p) {
-      results.matches.push(await runMatch(browser, { label: `1080p-${chosen}`, viewport: { width: 1920, height: 1080 }, pattern: chosen }));
+    if (runNormal) {
+      if (CFG.with720p) {
+        results.matches.push(await runMatch(browser, { label: '720p-aim', viewport: hd, pattern: chosen }));
+        save();
+      }
+      if (CFG.with1080p) {
+        results.matches.push(await runMatch(browser, { label: `1080p-${chosen}`, viewport: full, pattern: chosen }));
+        save();
+      }
+      if (!CFG.skipMemory) results.memory = await runMemoryCycles(browser);
       save();
+      for (const m of results.matches) writeFileSync(path.join(OUT_DIR, `per-second-${m.label}${rerun ? '-rerun' : ''}.csv`), toCsv(m));
+      log(`Wrote ${path.relative(ROOT, OUT_DIR)}/${CFG.outFile} and per-second CSVs.`);
     }
-    if (!CFG.skipMemory) results.memory = await runMemoryCycles(browser);
-    save();
-    for (const m of results.matches) writeFileSync(path.join(OUT_DIR, `per-second-${m.label}.csv`), toCsv(m));
-    log(`Wrote ${path.relative(ROOT, OUT_DIR)}/profile-results.json and per-second CSVs.`);
+    if (CFG.stress) {
+      const stressOpts = { pattern: chosen, durationSec: CFG.stressDurationSec, extraQuery: '&spawns=off', stressMaxAlive: CFG.stressMaxAlive };
+      for (const [label, viewport] of [['stress-720p', hd], ['stress-1080p', full]]) {
+        const run = await runMatch(browser, { label, viewport, ...stressOpts });
+        stressResults.runs.push(run);
+        saveStress();
+        writeFileSync(path.join(OUT_DIR, `per-second-${label}.csv`), toCsv(run, STRESS_CSV_COLS));
+      }
+      log(`Wrote ${path.relative(ROOT, OUT_DIR)}/profile-results-stress.json and per-second-stress-*.csv.`);
+    }
   } finally {
     save();
+    saveStress();
     await browser?.close().catch(() => {});
     killTree(server);
   }

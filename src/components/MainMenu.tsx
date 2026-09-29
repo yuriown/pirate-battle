@@ -52,10 +52,10 @@ export function MainMenu({ onPlay, onOptions, onOpenLog, lastResult, playerName 
           </div>
 
           <nav aria-label="Captain's log" className="mt-3 flex justify-center gap-3 short:mt-2">
-            <button type="button" className="pb-btn pb-btn--secondary w-40" onClick={() => onOpenLog('ranking')}>
+            <button type="button" className="pb-btn pb-btn--secondary w-44" onClick={() => onOpenLog('ranking')}>
               Ranking
             </button>
-            <button type="button" className="pb-btn pb-btn--secondary w-40" onClick={() => onOpenLog('history')}>
+            <button type="button" className="pb-btn pb-btn--secondary w-44" onClick={() => onOpenLog('history')}>
               Match History
             </button>
           </nav>

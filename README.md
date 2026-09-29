@@ -1,5 +1,7 @@
 # Pirate Battle
 
+[![CI](https://github.com/yuriown/pirate-battle/actions/workflows/ci.yml/badge.svg)](https://github.com/yuriown/pirate-battle/actions/workflows/ci.yml)
+
 A top-down 2D naval shooter built with **React**, **TypeScript (strict)** and **PixiJS**. Sail between
 islands, sink Chasers and Shooters, and climb the ranking before time runs out.
 
@@ -152,9 +154,15 @@ npm run test:report                               # HTML report; traces are kept
 
 The suite ([e2e/](e2e/)) covers the 12 required flows (one file per item) plus visual regression of the
 menu, a stable arena frame and the result screen, on desktop (1280×720) and mobile (Pixel 5 landscape)
-Chromium. Every test runs in a fresh browser context. Visual baselines are versioned in
-`e2e/__screenshots__/`; they were recorded on Windows, so on another OS regenerate them with
-`npm run test:e2e:update` before comparing.
+Chromium. Every test runs in a fresh browser context. Visual baselines are versioned per OS in
+`e2e/__screenshots__/<platform>/` (`win32` and `linux`, since fonts and rasterisation differ); on
+another OS record them with `npm run test:e2e:update` before comparing.
+
+**Continuous integration.** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push
+and pull request on a clean Ubuntu runner: `npm ci`, lint, type check, production build and the whole
+Playwright suite (desktop + mobile). The HTML report is attached to each run as an artifact, plus traces
+when a test fails. Running the workflow manually with *update_snapshots* re-records the Linux baselines
+and publishes them as an artifact.
 
 ### Test instrumentation
 
