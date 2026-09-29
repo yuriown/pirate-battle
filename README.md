@@ -59,8 +59,8 @@ parameters (see [Test instrumentation](#test-instrumentation)).
 
 | Action | Keyboard | Touch |
 | --- | --- | --- |
-| Sail forward | `W` / `↑` | ⬆ button (bottom left) |
-| Turn left / right | `A` / `D` or `←` / `→` | ↶ / ↷ buttons |
+| Sail forward | `W` / `↑` | Joystick (bottom left): push it |
+| Turn left / right | `A` / `D` or `←` / `→` | Joystick: point it where the ship should go |
 | Front cannon (1 ball) | `Space` / `J` | centre fire button (bottom right) |
 | Port broadside (3 balls, left) | `Q` / `K` | left fire button |
 | Starboard broadside (3 balls, right) | `E` / `L` | right fire button |

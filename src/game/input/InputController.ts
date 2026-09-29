@@ -1,6 +1,7 @@
 import { EMPTY_INPUT, type InputState } from '../sim/types';
 
-export type InputAction = keyof InputState;
+// Held digital actions (keys and hold buttons); the joystick heading is set separately.
+export type InputAction = Exclude<keyof InputState, 'steer'>;
 
 const KEY_BINDINGS: Record<string, InputAction> = {
   KeyW: 'forward',
@@ -29,6 +30,8 @@ export class InputController {
   /** Presses since the last sample: a tap shorter than one simulation step still registers once. */
   private pulses = new Set<InputAction>();
   private touch = new Map<InputAction, Set<number>>();
+  /** Touch joystick: desired heading and whether it is pushed far enough to sail forward. */
+  private stick: { heading: number; throttle: boolean } | null = null;
   private target: Window | null = null;
   private onPause: (() => void) | null = null;
   private enabled = true;
@@ -62,6 +65,16 @@ export class InputController {
     this.keys.clear();
     this.touch.clear();
     this.pulses.clear();
+    this.stick = null;
+  }
+
+  setStick(heading: number, throttle: boolean): void {
+    if (!this.enabled) return;
+    this.stick = { heading, throttle };
+  }
+
+  releaseStick(): void {
+    this.stick = null;
   }
 
   pressTouch(action: InputAction, pointerId: number): void {
@@ -79,10 +92,11 @@ export class InputController {
   sample(): InputState {
     if (!this.enabled) return { ...EMPTY_INPUT };
     const held = (a: InputAction) => this.keys.has(a) || this.pulses.has(a) || (this.touch.get(a)?.size ?? 0) > 0;
-    const state = {
-      forward: held('forward'),
+    const state: InputState = {
+      forward: held('forward') || (this.stick?.throttle ?? false),
       turnLeft: held('turnLeft'),
       turnRight: held('turnRight'),
+      steer: this.stick?.heading ?? null,
       fireFront: held('fireFront'),
       fireLeft: held('fireLeft'),
       fireRight: held('fireRight'),

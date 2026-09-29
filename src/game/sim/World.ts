@@ -104,8 +104,12 @@ export class World {
     const stats = this.config.player;
     tickCooldowns(p, dt);
 
-    const turn = (input.turnRight ? 1 : 0) - (input.turnLeft ? 1 : 0);
-    p.rotation = wrapAngle(p.rotation + turn * stats.turnRate * dt);
+    if (input.steer !== null) {
+      p.rotation = wrapAngle(turnTowards(p.rotation, input.steer, stats.turnRate * dt));
+    } else {
+      const turn = (input.turnRight ? 1 : 0) - (input.turnLeft ? 1 : 0);
+      p.rotation = wrapAngle(p.rotation + turn * stats.turnRate * dt);
+    }
     const target = input.forward ? stats.maxSpeed : 0;
     p.speed = approach(p.speed, target, (input.forward ? stats.acceleration : stats.deceleration) * dt);
     this.moveShip(p, dt);

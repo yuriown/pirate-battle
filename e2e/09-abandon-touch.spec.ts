@@ -43,37 +43,50 @@ test.describe('9. Abandoning, repeated navigation and touch controls', () => {
     expect(errors).toEqual([]);
   });
 
-  test('touch buttons steer and fire simultaneously (multi-touch)', async ({ page, isMobile }) => {
+  test('joystick steers and sails while the fire button shoots (multi-touch)', async ({ page, isMobile }) => {
     // Touch controls are only rendered on touch (coarse pointer) devices.
     test.skip(!isMobile, 'touch controls are a mobile feature');
     await openApp(page, { spawns: false });
     await startMatch(page);
-    const controls = page.getByTestId('touch-controls');
-    const forward = controls.getByRole('button', { name: 'Sail forward' });
-    const left = controls.getByRole('button', { name: 'Turn left' });
-    const fire = controls.getByRole('button', { name: 'Fire front cannon' });
-    await expect(forward).toBeVisible();
+    const stick = page.getByTestId('joystick');
+    const fire = page.getByTestId('touch-controls').getByRole('button', { name: 'Fire front cannon' });
+    await expect(stick).toBeVisible();
+    const box = (await stick.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const drag = (type: string, x: number, y: number) =>
+      stick.dispatchEvent(type, { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1 });
 
-    await press(forward, 1);
-    await press(fire, 3);
+    // Push the stick up (north, the ship's initial heading) and hold fire with a second finger.
+    await drag('pointerdown', cx, cy);
+    await drag('pointermove', cx, cy - box.height / 2);
+    await press(fire, 2);
     const s0 = await advance(page, 1000);
     expect(s0.player.y).toBeLessThan(PLAYER_START.y - 100);
+    expect(s0.player.rotation).toBeCloseTo(-Math.PI / 2, 3);
     expect(s0.counters.shots.front).toBeGreaterThanOrEqual(3);
-    await press(left, 2);
-    const s = await advance(page, 600);
-    expect(s.player.rotation).toBeLessThan(s0.player.rotation);
-    expect(s.counters.shots.front).toBeGreaterThan(s0.counters.shots.front);
 
-    // Releasing one finger keeps the others active.
-    await release(left, 2);
+    // Point it west: the ship turns towards it (left from north) at its turn rate while still sailing.
+    await drag('pointermove', cx - box.width / 2, cy);
+    const s1 = await advance(page, 300);
+    expect(s1.player.rotation).toBeLessThan(s0.player.rotation);
+    expect(s1.player.speed).toBeGreaterThan(0);
+    const s2 = await advance(page, 1500);
+    expect(Math.abs(Math.abs(s2.player.rotation) - Math.PI)).toBeLessThan(0.01);
+    expect(s2.counters.shots.front).toBeGreaterThan(s0.counters.shots.front);
+
+    // A small push inside the dead zone neither steers nor sails.
+    await drag('pointermove', cx + 3, cy + 3);
     const r = (await state(page)).player.rotation;
-    const s2 = await advance(page, 500);
-    expect(s2.player.rotation).toBeCloseTo(r, 5);
-    expect(s2.player.speed).toBeGreaterThan(0);
-    await release(forward, 1);
-    await release(fire, 3);
-    const shots = s2.counters.shots.front;
-    const s3 = await advance(page, 1000);
-    expect(s3.counters.shots.front).toBe(shots);
+    const s3 = await advance(page, 2000);
+    expect(s3.player.rotation).toBeCloseTo(r, 5);
+    expect(s3.player.speed).toBe(0);
+
+    // Releasing both fingers stops everything.
+    await drag('pointerup', cx, cy);
+    await release(fire, 2);
+    const shots = s3.counters.shots.front;
+    const s4 = await advance(page, 1000);
+    expect(s4.counters.shots.front).toBe(shots);
   });
 });

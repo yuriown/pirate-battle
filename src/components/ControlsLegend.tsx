@@ -24,7 +24,7 @@ export function ControlsLegend() {
         ))}
       </dl>
       <p className="mt-2 text-amber-50/70 short:hidden">
-        Touch: hold the on-screen buttons — steer on the left, fire on the right. Hold fire to keep shooting.
+        Touch: drag the joystick (left) towards where the ship should sail; hold the fire buttons (right).
       </p>
     </section>
   );

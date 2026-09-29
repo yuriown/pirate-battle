@@ -8,6 +8,11 @@ export interface InputState {
   forward: boolean;
   turnLeft: boolean;
   turnRight: boolean;
+  /**
+   * Desired heading from the touch joystick (radians, same convention as Ship.rotation), or null.
+   * When set, the ship turns towards it at its normal turn rate instead of using turnLeft/turnRight.
+   */
+  steer: number | null;
   fireFront: boolean;
   fireLeft: boolean;
   fireRight: boolean;
@@ -17,6 +22,7 @@ export const EMPTY_INPUT: Readonly<InputState> = Object.freeze({
   forward: false,
   turnLeft: false,
   turnRight: false,
+  steer: null,
   fireFront: false,
   fireLeft: false,
   fireRight: false,
