@@ -40,22 +40,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const keys = { forward: false, turnLeft: false, turnRight: false };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) keys.forward = true;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.turnLeft = true;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.turnRight = true;
+      const code = e.code;
+      const key = e.key ? e.key.toLowerCase() : '';
 
-      // Combat keys
-      if (['Space', 'KeyJ'].includes(e.code)) {
+      // Prevent scrolling on game keys
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) {
         e.preventDefault();
+      }
+
+      // Movement
+      if (['ArrowUp', 'KeyW'].includes(code) || key === 'w' || key === 'arrowup') keys.forward = true;
+      if (['ArrowLeft', 'KeyA'].includes(code) || key === 'a' || key === 'arrowleft') keys.turnLeft = true;
+      if (['ArrowRight', 'KeyD'].includes(code) || key === 'd' || key === 'arrowright') keys.turnRight = true;
+
+      // Frontal Cannon (1x Ball) - Space, J, F, Enter
+      if (['Space', 'KeyJ', 'KeyF', 'Enter'].includes(code) || key === ' ' || key === 'j' || key === 'f' || key === 'enter') {
         engine.playerFireFront();
       }
-      if (e.code === 'KeyK') {
+
+      // Broadside Left (Port 3x Salvo) - Q, K, Z
+      if (['KeyQ', 'KeyK', 'KeyZ'].includes(code) || key === 'q' || key === 'k' || key === 'z') {
         engine.playerFireBroadside('LEFT');
       }
-      if (e.code === 'KeyL') {
+
+      // Broadside Right (Starboard 3x Salvo) - E, L, C, X
+      if (['KeyE', 'KeyL', 'KeyC', 'KeyX'].includes(code) || key === 'e' || key === 'l' || key === 'c' || key === 'x') {
         engine.playerFireBroadside('RIGHT');
       }
-      if (e.code === 'KeyP' || e.code === 'Escape') {
+
+      // Pause
+      if (code === 'KeyP' || code === 'Escape' || key === 'p' || key === 'escape') {
         engine.togglePause();
       }
 
@@ -63,9 +77,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) keys.forward = false;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.turnLeft = false;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.turnRight = false;
+      const code = e.code;
+      const key = e.key ? e.key.toLowerCase() : '';
+
+      if (['ArrowUp', 'KeyW'].includes(code) || key === 'w' || key === 'arrowup') keys.forward = false;
+      if (['ArrowLeft', 'KeyA'].includes(code) || key === 'a' || key === 'arrowleft') keys.turnLeft = false;
+      if (['ArrowRight', 'KeyD'].includes(code) || key === 'd' || key === 'arrowright') keys.turnRight = false;
 
       engine.setInput(keys.forward, keys.turnLeft, keys.turnRight);
     };
@@ -74,15 +91,44 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       engine.setPaused(true);
     };
 
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) {
+        // Left click = Front shot
+        engine.playerFireFront();
+      } else if (e.button === 2) {
+        // Right click = Broadside right
+        e.preventDefault();
+        engine.playerFireBroadside('RIGHT');
+      } else if (e.button === 1) {
+        // Middle click = Broadside left
+        e.preventDefault();
+        engine.playerFireBroadside('LEFT');
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mousedown', handleMouseDown);
+      container.addEventListener('contextmenu', handleContextMenu);
+    }
 
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      if (container) {
+        container.removeEventListener('mousedown', handleMouseDown);
+        container.removeEventListener('contextmenu', handleContextMenu);
+      }
       engine.destroy();
       engineRef.current = null;
     };
@@ -91,7 +137,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   return (
     <div
       ref={containerRef}
-      className="w-full h-full relative flex items-center justify-center overflow-hidden select-none bg-ocean-900"
+      className="w-full h-full relative flex items-center justify-center overflow-hidden select-none bg-ocean-900 cursor-crosshair"
       style={{ touchAction: 'none' }}
     />
   );

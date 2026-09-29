@@ -119,7 +119,6 @@ export class PirateEngine {
     const screenW = this.containerElement.clientWidth || window.innerWidth;
     const screenH = this.containerElement.clientHeight || window.innerHeight;
 
-    // Scale world to fit container preserving aspect ratio
     const scaleX = screenW / ARENA_CONFIG.width;
     const scaleY = screenH / ARENA_CONFIG.height;
     const scale = Math.min(scaleX, scaleY);
@@ -200,13 +199,13 @@ export class PirateEngine {
     this.projectileSprites.clear();
     this.wakeContainer.removeChildren();
 
-    // Create Player Ship
+    // Create Player Ship (Facing UP: -Math.PI / 2)
     this.player = {
       id: 'player',
       type: 'PLAYER',
       x: ARENA_CONFIG.width / 2,
       y: ARENA_CONFIG.height - 180,
-      rotation: -Math.PI / 2, // Facing UP
+      rotation: -Math.PI / 2,
       speed: 0,
       targetSpeed: 0,
       turnDirection: 0,
@@ -230,10 +229,8 @@ export class PirateEngine {
   private update(ticker: Ticker): void {
     if (!this.isRunning || this.isPaused || this.isGameOver) return;
 
-    // Delta time in seconds (clamped to prevent huge jumps on tab switch)
     const dt = Math.min(ticker.deltaTime / 60, 0.1);
 
-    // Update Session Clock
     this.sessionElapsed += dt;
     const timeRemaining = Math.max(0, this.config.sessionDuration - this.sessionElapsed);
 
@@ -242,39 +239,26 @@ export class PirateEngine {
       return;
     }
 
-    // 1. Player Update
     this.updatePlayer(dt);
-
-    // 2. Enemy Spawner & AI Update
     this.updateSpawner(dt);
     this.updateEnemies(dt);
-
-    // 3. Projectiles Update & Collisions
     this.updateProjectiles(dt);
-
-    // 4. Particles & Wake
     this.updateParticles(dt);
-
-    // 5. Sync Sprites to Entity Positions
     this.syncDisplay();
-
-    // 6. Emit state snapshot to React HUD
     this.emitSnapshot();
   }
 
   private updatePlayer(dt: number): void {
     if (this.player.isDead) return;
 
-    // Rotation
     let turn = 0;
     if (this.input.turnLeft) turn -= 1;
     if (this.input.turnRight) turn += 1;
     this.player.rotation += turn * this.config.playerTurnSpeed * dt;
 
-    // Target Speed & Nautical Inertia
     const maxSpeed = this.config.playerSpeed;
-    const accel = 180; // px/s^2
-    const drag = 120;  // px/s^2
+    const accel = 180;
+    const drag = 120;
 
     if (this.input.forward) {
       this.player.speed = Math.min(maxSpeed, this.player.speed + accel * dt);
@@ -282,24 +266,23 @@ export class PirateEngine {
       this.player.speed = Math.max(0, this.player.speed - drag * dt);
     }
 
-    // Move forward based on ship heading
-    let newX = this.player.x + Math.sin(this.player.rotation + Math.PI / 2) * this.player.speed * dt;
-    let newY = this.player.y - Math.cos(this.player.rotation + Math.PI / 2) * this.player.speed * dt;
+    const fwdX = Math.cos(this.player.rotation);
+    const fwdY = Math.sin(this.player.rotation);
 
-    // Arena boundary clamp
+    let newX = this.player.x + fwdX * this.player.speed * dt;
+    let newY = this.player.y + fwdY * this.player.speed * dt;
+
     const pad = 40;
     newX = Math.max(pad, Math.min(ARENA_CONFIG.width - pad, newX));
     newY = Math.max(pad, Math.min(ARENA_CONFIG.height - pad, newY));
 
-    // Island collision resolution
     const resolved = Physics.resolveIslandCollisions(newX, newY, 28, ARENA_CONFIG.islands);
     this.player.x = resolved.x;
     this.player.y = resolved.y;
     if (resolved.collided) {
-      this.player.speed *= 0.85; // slight friction on collision
+      this.player.speed *= 0.85;
     }
 
-    // Create wake trail particle if moving
     if (this.player.speed > 30 && Math.random() < 0.4) {
       this.spawnWake(this.player.x, this.player.y, this.player.rotation);
     }
@@ -314,12 +297,10 @@ export class PirateEngine {
   }
 
   private spawnRandomEnemy(): void {
-    if (this.enemies.length >= 12) return; // entity cap
+    if (this.enemies.length >= 12) return;
 
-    // 50% Chaser, 50% Shooter
     const type = Math.random() < 0.5 ? 'CHASER' : 'SHOOTER';
 
-    // Spawn along the perimeter at a safe distance from player
     let spawnX = 0;
     let spawnY = 0;
     let attempts = 0;
@@ -333,10 +314,8 @@ export class PirateEngine {
       else if (side === 2) { spawnX = Math.random() * ARENA_CONFIG.width; spawnY = ARENA_CONFIG.height - 60; }
       else { spawnX = 60; spawnY = Math.random() * ARENA_CONFIG.height; }
 
-      // Check distance from player (at least 350px away)
       const distToPlayer = Physics.distance(spawnX, spawnY, this.player.x, this.player.y);
       if (distToPlayer > 350) {
-        // Check not inside an island
         let insideIsland = false;
         for (const island of ARENA_CONFIG.islands) {
           if (Physics.distance(spawnX, spawnY, island.x, island.y) < island.radius + 50) {
@@ -382,14 +361,12 @@ export class PirateEngine {
       const distToPlayer = Physics.distance(enemy.x, enemy.y, this.player.x, this.player.y);
 
       if (enemy.type === 'CHASER') {
-        // --- CHASER AI: Aggressive pursuit and Ramming ---
-        const targetAngle = Math.atan2(this.player.y - enemy.y, this.player.x - enemy.x) - Math.PI / 2;
+        const targetAngle = Math.atan2(this.player.y - enemy.y, this.player.x - enemy.x);
         let angleDiff = Physics.normalizeAngle(targetAngle - enemy.rotation);
         enemy.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 2.2 * dt);
 
-        // Move
-        const vx = Math.sin(enemy.rotation + Math.PI / 2) * enemy.speed;
-        const vy = -Math.cos(enemy.rotation + Math.PI / 2) * enemy.speed;
+        const vx = Math.cos(enemy.rotation) * enemy.speed;
+        const vy = Math.sin(enemy.rotation) * enemy.speed;
         let newX = enemy.x + vx * dt;
         let newY = enemy.y + vy * dt;
 
@@ -397,7 +374,6 @@ export class PirateEngine {
         enemy.x = resolved.x;
         enemy.y = resolved.y;
 
-        // Collision with Player -> Explode & Damage Player (Self-destruction gives 0 pts)
         if (distToPlayer < 48) {
           this.player.health = Math.max(0, this.player.health - this.config.chaserDamage);
           soundService.playExplosion();
@@ -412,22 +388,20 @@ export class PirateEngine {
           continue;
         }
       } else {
-        // --- SHOOTER AI: Tactical range keeping and Cannons ---
         const desiredDistance = this.config.shooterAttackRange;
-        const targetAngle = Math.atan2(this.player.y - enemy.y, this.player.x - enemy.x) - Math.PI / 2;
+        const targetAngle = Math.atan2(this.player.y - enemy.y, this.player.x - enemy.x);
         let angleDiff = Physics.normalizeAngle(targetAngle - enemy.rotation);
         enemy.rotation += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), 1.8 * dt);
 
-        // Move towards or maintain distance
         let speed = enemy.speed;
         if (distToPlayer < desiredDistance * 0.7) {
-          speed = -enemy.speed * 0.4; // back away
+          speed = -enemy.speed * 0.4;
         } else if (distToPlayer < desiredDistance) {
-          speed = 0; // in optimal firing range
+          speed = 0;
         }
 
-        const vx = Math.sin(enemy.rotation + Math.PI / 2) * speed;
-        const vy = -Math.cos(enemy.rotation + Math.PI / 2) * speed;
+        const vx = Math.cos(enemy.rotation) * speed;
+        const vy = Math.sin(enemy.rotation) * speed;
         let newX = enemy.x + vx * dt;
         let newY = enemy.y + vy * dt;
 
@@ -435,13 +409,12 @@ export class PirateEngine {
         enemy.x = resolved.x;
         enemy.y = resolved.y;
 
-        // Shoot at player if line of sight is clear
         if (distToPlayer <= this.config.shooterAttackRange + 30) {
           if (now - enemy.lastFrontShotTime >= this.config.shooterCooldown) {
             const hasLos = Physics.hasLineOfSight(enemy.x, enemy.y, this.player.x, this.player.y, ARENA_CONFIG.islands);
             if (hasLos) {
               enemy.lastFrontShotTime = now;
-              this.fireCannonball(enemy.id, 'SHOOTER', enemy.x, enemy.y, targetAngle + Math.PI / 2, this.config.shooterDamage);
+              this.fireCannonball(enemy.id, 'SHOOTER', enemy.x, enemy.y, targetAngle, this.config.shooterDamage);
             }
           }
         }
@@ -459,9 +432,9 @@ export class PirateEngine {
     if (now - this.player.lastFrontShotTime < this.config.playerFrontCooldown) return;
 
     this.player.lastFrontShotTime = now;
-    const angle = this.player.rotation + Math.PI / 2;
+    const angle = this.player.rotation; // Straight ahead along ship heading
 
-    const spawnDist = 48;
+    const spawnDist = 45;
     const sx = this.player.x + Math.cos(angle) * spawnDist;
     const sy = this.player.y + Math.sin(angle) * spawnDist;
 
@@ -476,12 +449,17 @@ export class PirateEngine {
     if (now - this.player.lastBroadsideShotTime < this.config.playerBroadsideCooldown) return;
 
     this.player.lastBroadsideShotTime = now;
-    const baseAngle = this.player.rotation + Math.PI / 2;
+    const baseAngle = this.player.rotation;
     const fireAngle = side === 'LEFT' ? baseAngle - Math.PI / 2 : baseAngle + Math.PI / 2;
 
+    const perpX = Math.cos(fireAngle);
+    const perpY = Math.sin(fireAngle);
+    const fwdX = Math.cos(baseAngle);
+    const fwdY = Math.sin(baseAngle);
+
     [-18, 0, 18].forEach(offset => {
-      const sx = this.player.x + Math.cos(baseAngle) * offset + Math.cos(fireAngle) * 22;
-      const sy = this.player.y + Math.sin(baseAngle) * offset + Math.sin(fireAngle) * 22;
+      const sx = this.player.x + fwdX * offset + perpX * 28;
+      const sy = this.player.y + fwdY * offset + perpY * 28;
       this.fireCannonball(this.player.id, 'PLAYER', sx, sy, fireAngle, 30);
       this.spawnMuzzleFlash(sx, sy);
     });
@@ -517,7 +495,6 @@ export class PirateEngine {
 
     this.projectiles.push(projectile);
 
-    // Create Sprite
     const sprite = new Sprite(AssetManager.getTexture(ownerType === 'PLAYER' ? 'cannonball' : 'cannonball_enemy'));
     sprite.anchor.set(0.5);
     sprite.position.set(x, y);
@@ -662,13 +639,12 @@ export class PirateEngine {
   }
 
   private spawnWake(x: number, y: number, rotation: number): void {
-    const sternAngle = rotation + Math.PI / 2 + Math.PI;
-    const wx = x + Math.cos(sternAngle) * 36;
-    const wy = y + Math.sin(sternAngle) * 36;
+    const sternX = x - Math.cos(rotation) * 36;
+    const sternY = y - Math.sin(rotation) * 36;
 
     this.particles.push({
-      x: wx,
-      y: wy,
+      x: sternX,
+      y: sternY,
       vx: (Math.random() - 0.5) * 10,
       vy: (Math.random() - 0.5) * 10,
       size: 4 + Math.random() * 4,
@@ -712,7 +688,6 @@ export class PirateEngine {
     sprite.anchor.set(0.5);
     container.addChild(sprite);
 
-    // Floating Health Bar
     const hpBar = new Graphics();
     hpBar.name = 'hpBar';
     container.addChild(hpBar);
@@ -730,7 +705,6 @@ export class PirateEngine {
   }
 
   private syncDisplay(): void {
-    // 1. Player
     const playerContainer = this.shipSprites.get(this.player.id);
     if (playerContainer) {
       playerContainer.position.set(this.player.x, this.player.y);
@@ -738,7 +712,6 @@ export class PirateEngine {
       this.renderHpBar(playerContainer, this.player.health, this.player.maxHealth, 0x22c55e);
     }
 
-    // 2. Enemies
     for (const enemy of this.enemies) {
       const container = this.shipSprites.get(enemy.id);
       if (container) {
@@ -748,7 +721,6 @@ export class PirateEngine {
       }
     }
 
-    // 3. Projectiles
     for (const p of this.projectiles) {
       const sprite = this.projectileSprites.get(p.id);
       if (sprite) {
@@ -767,15 +739,12 @@ export class PirateEngine {
     const y = -48;
     const pct = Math.max(0, Math.min(1, hp / maxHp));
 
-    // Background
     hpBar.rect(-width / 2, y, width, height);
     hpBar.fill({ color: 0x0f172a, alpha: 0.8 });
 
-    // Fill
     hpBar.rect(-width / 2, y, width * pct, height);
     hpBar.fill({ color: fillColor });
 
-    // Border
     hpBar.rect(-width / 2, y, width, height);
     hpBar.stroke({ width: 1, color: 0x000000, alpha: 0.5 });
   }

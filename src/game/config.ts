@@ -6,8 +6,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   playerMaxHealth: 100,
   playerSpeed: 190,           // pixels per second
   playerTurnSpeed: 2.4,       // radians per second
-  playerFrontCooldown: 400,   // ms
-  playerBroadsideCooldown: 1200, // ms
+  playerFrontCooldown: 300,   // ms
+  playerBroadsideCooldown: 750, // ms
   chaserHealth: 30,
   chaserSpeed: 140,
   chaserDamage: 25,
