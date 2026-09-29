@@ -66,7 +66,8 @@ parameters (see [Test instrumentation](#test-instrumentation)).
 | Starboard broadside (3 balls, right) | `E` / `L` | right fire button |
 | Pause / resume | `Esc` / `P` | pause button (top right) |
 
-Touch buttons appear on touch (coarse pointer) devices; on desktop a keyboard hint bar is shown
+Touch controls (a steering joystick on the left, fire buttons on the right) appear on touch (coarse
+pointer) devices; on desktop a keyboard hint bar is shown
 during the match instead. Hold any fire control to keep shooting at the weapon's cooldown. Moving, turning and firing can be
 combined, including multi-touch. Game keys are only captured while a match is running; menus use normal
 keyboard navigation (Tab, Enter/Space, arrow keys in the Ranking/History tabs, Esc closes dialogs).
@@ -175,7 +176,8 @@ Opt-in through the URL, never active in normal play:
 | `&clock=manual` | The simulation only advances through `advance(ms)` (fixed 1/60 s steps) |
 | `&spawns=off` | Disables automatic spawns so a test can arrange enemies |
 
-Tests still press real keys / touch buttons; rules, collisions and rendering run unmodified.
+Tests still press real keys, drag the joystick and hold touch buttons; rules, collisions and rendering
+run unmodified.
 
 ## Assets and licenses
 

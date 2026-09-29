@@ -68,6 +68,9 @@ sees coarse snapshots.**
   including cooldowns and effects. Resuming requires an explicit action (button, Esc/P) and starts from a
   clean input state, so nothing from the paused period is replayed.
 - Input is sampled once per step. Presses shorter than one step are latched, so a quick tap still fires.
+  Touch steering is an analog joystick: it sets a desired heading (`InputState.steer`) that the ship
+  turns towards at its normal turn rate, and sails while the stick is pushed past a threshold, so moving
+  and turning are one thumb gesture; keyboard turning keeps using turnLeft/turnRight.
 - **End of match** freezes the World (no movement, attacks, damage, spawns or scoring; in-flight
   projectiles are removed); only visual effects keep animating, then the ticker stops. The session
   reports the outcome once. If the player dies on the step that reaches the time limit, the end reason
@@ -223,8 +226,8 @@ dates, and scenario latency uses the same seed. `latency=instant` removes artifi
 - Visual baselines are OS/GPU specific (recorded on Windows + Chromium).
 - Audio requires a user gesture (it unlocks on Play). The WAVs are loaded lazily after that and never
   block the match.
-- Mobile gameplay is landscape-only by design. Touch buttons are shown on coarse-pointer (touch)
-  devices; fine-pointer devices get a keyboard hint bar instead.
+- Mobile gameplay is landscape-only by design. Touch controls (joystick + fire buttons) are shown on
+  coarse-pointer (touch) devices; fine-pointer devices get a keyboard hint bar instead.
 - The two procedural textures' source `Graphics` and the arena frame are released by Pixi's own
   graphics GC rather than destroyed explicitly: destroying their contexts right after use crashed
   Pixi 8's batcher in testing.
