@@ -3,7 +3,6 @@ import {
   Container,
   Graphics,
   Sprite,
-  TilingSprite,
   Ticker,
 } from 'pixi.js';
 import {
@@ -25,13 +24,14 @@ export interface EngineCallbacks {
 }
 
 export class PirateEngine {
-  public app: Application;
+  public app: Application | null = null;
+  private containerElement: HTMLElement;
   private config: GameConfig;
   private callbacks: EngineCallbacks;
 
   // Scene Graph Containers
   private worldContainer: Container;
-  private waterSprite!: TilingSprite;
+  private waterBackground: Graphics;
   private islandContainer: Container;
   private wakeContainer: Container;
   private shipContainer: Container;
@@ -54,6 +54,7 @@ export class PirateEngine {
   private isRunning: boolean = false;
   private isPaused: boolean = false;
   private isGameOver: boolean = false;
+  private isDestroyed: boolean = false;
   private score: number = 0;
   private sessionElapsed: number = 0;
   private lastEnemySpawnTime: number = 0;
@@ -66,13 +67,13 @@ export class PirateEngine {
     turnRight: false,
   };
 
-  constructor(_canvas: HTMLCanvasElement, config: GameConfig, callbacks: EngineCallbacks) {
+  constructor(containerElement: HTMLElement, config: GameConfig, callbacks: EngineCallbacks) {
+    this.containerElement = containerElement;
     this.config = { ...config };
     this.callbacks = callbacks;
-    AssetManager.init();
 
-    this.app = new Application();
     this.worldContainer = new Container();
+    this.waterBackground = new Graphics();
     this.islandContainer = new Container();
     this.wakeContainer = new Container();
     this.shipContainer = new Container();
@@ -84,35 +85,57 @@ export class PirateEngine {
     this.boundTickerUpdate = this.update.bind(this);
   }
 
-  public async init(canvas: HTMLCanvasElement): Promise<void> {
-    await this.app.init({
-      canvas,
-      width: ARENA_CONFIG.width,
-      height: ARENA_CONFIG.height,
+  public async init(): Promise<void> {
+    const app = new Application();
+
+    await app.init({
+      resizeTo: this.containerElement,
       backgroundColor: 0x071626,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
       antialias: true,
     });
 
+    if (this.isDestroyed) {
+      app.destroy(true, { children: true });
+      return;
+    }
+
+    this.app = app;
+    this.containerElement.appendChild(app.canvas);
+
+    AssetManager.init();
     this.buildScene();
+    this.handleResize();
     this.resetGame();
 
     this.app.ticker.add(this.boundTickerUpdate);
     this.isRunning = true;
   }
 
+  public handleResize(): void {
+    if (!this.app || !this.containerElement) return;
+
+    const screenW = this.containerElement.clientWidth || window.innerWidth;
+    const screenH = this.containerElement.clientHeight || window.innerHeight;
+
+    // Scale world to fit container preserving aspect ratio
+    const scaleX = screenW / ARENA_CONFIG.width;
+    const scaleY = screenH / ARENA_CONFIG.height;
+    const scale = Math.min(scaleX, scaleY);
+
+    this.worldContainer.scale.set(scale);
+    this.worldContainer.x = (screenW - ARENA_CONFIG.width * scale) / 2;
+    this.worldContainer.y = (screenH - ARENA_CONFIG.height * scale) / 2;
+  }
+
   private buildScene(): void {
+    if (!this.app) return;
     this.app.stage.addChild(this.worldContainer);
 
-    // 1. Water Background
-    const waterTexture = AssetManager.getTexture('water_tile');
-    this.waterSprite = new TilingSprite({
-      texture: waterTexture,
-      width: ARENA_CONFIG.width,
-      height: ARENA_CONFIG.height,
-    });
-    this.worldContainer.addChild(this.waterSprite);
+    // 1. Deep Ocean Background
+    this.renderWaterBackground();
+    this.worldContainer.addChild(this.waterBackground);
 
     // 2. Island Layer
     this.buildIslands();
@@ -128,11 +151,24 @@ export class PirateEngine {
     // 4. World border outline
     const border = new Graphics();
     border.rect(0, 0, ARENA_CONFIG.width, ARENA_CONFIG.height);
-    border.stroke({ width: 8, color: 0x0284c7, alpha: 0.6 });
+    border.stroke({ width: 6, color: 0x0284c7, alpha: 0.6 });
     this.worldContainer.addChild(border);
 
     // 5. In-game HUD markers
     this.worldContainer.addChild(this.hudContainer);
+  }
+
+  private renderWaterBackground(): void {
+    this.waterBackground.clear();
+    this.waterBackground.rect(0, 0, ARENA_CONFIG.width, ARENA_CONFIG.height);
+    this.waterBackground.fill({ color: 0x0a233f });
+
+    // Subtle wave lines
+    for (let y = 30; y < ARENA_CONFIG.height; y += 40) {
+      this.waterBackground.moveTo(0, y);
+      this.waterBackground.lineTo(ARENA_CONFIG.width, y);
+      this.waterBackground.stroke({ width: 1.5, color: 0x38bdf8, alpha: 0.08 });
+    }
   }
 
   private buildIslands(): void {
@@ -205,10 +241,6 @@ export class PirateEngine {
       this.endGame('TIME_EXPIRED');
       return;
     }
-
-    // Water scroll animation
-    this.waterSprite.tilePosition.x += 12 * dt;
-    this.waterSprite.tilePosition.y += 8 * dt;
 
     // 1. Player Update
     this.updatePlayer(dt);
@@ -421,9 +453,6 @@ export class PirateEngine {
   // WEAPONS & COMBAT
   // ==========================================
 
-  /**
-   * Player Frontal Cannon Shot (1 Cannonball)
-   */
   public playerFireFront(): void {
     if (this.isPaused || this.isGameOver || this.player.isDead) return;
     const now = performance.now();
@@ -432,7 +461,6 @@ export class PirateEngine {
     this.player.lastFrontShotTime = now;
     const angle = this.player.rotation + Math.PI / 2;
 
-    // Bow tip offset
     const spawnDist = 48;
     const sx = this.player.x + Math.cos(angle) * spawnDist;
     const sy = this.player.y + Math.sin(angle) * spawnDist;
@@ -442,9 +470,6 @@ export class PirateEngine {
     this.spawnMuzzleFlash(sx, sy);
   }
 
-  /**
-   * Player Broadside Salvo (3 parallel cannonballs on Left or Right)
-   */
   public playerFireBroadside(side: 'LEFT' | 'RIGHT'): void {
     if (this.isPaused || this.isGameOver || this.player.isDead) return;
     const now = performance.now();
@@ -454,7 +479,6 @@ export class PirateEngine {
     const baseAngle = this.player.rotation + Math.PI / 2;
     const fireAngle = side === 'LEFT' ? baseAngle - Math.PI / 2 : baseAngle + Math.PI / 2;
 
-    // 3 parallel guns offset along ship hull
     [-18, 0, 18].forEach(offset => {
       const sx = this.player.x + Math.cos(baseAngle) * offset + Math.cos(fireAngle) * 22;
       const sy = this.player.y + Math.sin(baseAngle) * offset + Math.sin(fireAngle) * 22;
@@ -507,11 +531,9 @@ export class PirateEngine {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
 
-      // Move
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      // Check Lifetime or Arena Bounds
       const age = (now - p.createdAt) / 1000;
       if (
         age >= p.lifetime ||
@@ -522,7 +544,6 @@ export class PirateEngine {
         continue;
       }
 
-      // Check Island Collision
       let hitIsland = false;
       for (const island of ARENA_CONFIG.islands) {
         if (Physics.distance(p.x, p.y, island.x, island.y) < island.radius + p.radius) {
@@ -536,14 +557,12 @@ export class PirateEngine {
         continue;
       }
 
-      // Check Ship Hit (Player vs Enemy or Enemy vs Player)
       if (p.ownerType === 'PLAYER') {
         for (let eIdx = this.enemies.length - 1; eIdx >= 0; eIdx--) {
           const enemy = this.enemies[eIdx];
           if (enemy.isDead) continue;
 
           if (Physics.distance(p.x, p.y, enemy.x, enemy.y) < enemy.width / 2 + p.radius) {
-            // Damage enemy
             enemy.health -= p.damage;
             this.spawnHitSparks(p.x, p.y, 0xf59e0b);
             soundService.playWoodImpact();
@@ -561,7 +580,6 @@ export class PirateEngine {
           }
         }
       } else if (p.ownerType === 'SHOOTER') {
-        // Enemy shot hits Player
         if (!this.player.isDead && Physics.distance(p.x, p.y, this.player.x, this.player.y) < 26 + p.radius) {
           this.player.health = Math.max(0, this.player.health - p.damage);
           this.spawnHitSparks(p.x, p.y, 0xef4444);
@@ -815,8 +833,12 @@ export class PirateEngine {
   }
 
   public destroy(): void {
+    this.isDestroyed = true;
     this.isRunning = false;
-    this.app.ticker.remove(this.boundTickerUpdate);
-    this.app.destroy(true, { children: true, texture: true });
+    if (this.app) {
+      this.app.ticker.remove(this.boundTickerUpdate);
+      this.app.destroy(true, { children: true });
+      this.app = null;
+    }
   }
 }

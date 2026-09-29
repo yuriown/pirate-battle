@@ -15,19 +15,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onGameOver,
   engineRef,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!containerRef.current) return;
 
-    const engine = new PirateEngine(canvasRef.current, config, {
+    const engine = new PirateEngine(containerRef.current, config, {
       onSnapshotUpdate,
       onGameOver,
     });
 
-    engine.init(canvasRef.current).then(() => {
-      engineRef.current = engine;
+    engineRef.current = engine;
+    engine.init().catch(err => {
+      console.error('Failed to initialize PirateEngine:', err);
     });
+
+    const handleResize = () => {
+      engine.handleResize();
+    };
+
+    window.addEventListener('resize', handleResize);
 
     // Keyboard Listeners
     const keys = { forward: false, turnLeft: false, turnRight: false };
@@ -64,7 +71,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     const handleBlur = () => {
-      // Auto pause on tab blur
       engine.setPaused(true);
     };
 
@@ -73,6 +79,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     window.addEventListener('blur', handleBlur);
 
     return () => {
+      window.removeEventListener('resize', handleResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
@@ -82,11 +89,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   }, [config]);
 
   return (
-    <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-ocean-900">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full object-contain max-w-[1920px] max-h-[1080px] shadow-2xl"
-      />
-    </div>
+    <div
+      ref={containerRef}
+      className="w-full h-full relative flex items-center justify-center overflow-hidden select-none bg-ocean-900"
+      style={{ touchAction: 'none' }}
+    />
   );
 };
