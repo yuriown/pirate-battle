@@ -30,6 +30,12 @@ export async function openApp(page: Page, o: AppOptions = {}): Promise<void> {
   if (o.manualClock !== false) params.set('clock', 'manual');
   if (o.spawns === false) params.set('spawns', 'off');
   if (o.timeoutMs) params.set('timeout', String(o.timeoutMs));
+  // A fixed player: the default name is derived from a random id and would change layouts between runs.
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('pb.player.v1')) {
+      localStorage.setItem('pb.player.v1', JSON.stringify({ playerId: 'e2e-player', playerName: 'Captain Test' }));
+    }
+  });
   if (o.options) {
     const value = JSON.stringify(o.options);
     await page.addInitScript((v) => {

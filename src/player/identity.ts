@@ -9,7 +9,8 @@ export interface Player {
   playerName: string;
 }
 
-const NAME_WORDS = ['Barnacle', 'Kraken', 'Cutlass', 'Doubloon', 'Tempest', 'Anchor', 'Maelstrom', 'Corsair', 'Gull', 'Reef'];
+// Every default name ('Captain ' + word) must pass validatePlayerName (at most 16 characters).
+const NAME_WORDS = ['Barnacle', 'Kraken', 'Cutlass', 'Doubloon', 'Tempest', 'Anchor', 'Squall', 'Corsair', 'Gull', 'Reef'];
 const NAME_PATTERN = /^[\p{L}\p{N} '-]{2,16}$/u;
 
 function defaultName(playerId: string): string {

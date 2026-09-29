@@ -8,7 +8,7 @@ test.describe('Visual regression', () => {
   test('main menu', async ({ page }) => {
     await openApp(page);
     await page.evaluate(() => document.fonts.ready);
-    await expect(page).toHaveScreenshot('menu.png', { mask: [page.getByText(/Sailing as/)] });
+    await expect(page).toHaveScreenshot('menu.png');
   });
 
   test('arena in a stable state', async ({ page }) => {
