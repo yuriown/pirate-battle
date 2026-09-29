@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -62,9 +61,12 @@ jobs:
           path: test-results/
           retention-days: 14
 
-      - name: Upload re-recorded Linux baselines
-        if: ${{ inputs.update_snapshots }}
+      # Baselines missing for this OS are written by Playwright on the run; publish them so they can be
+      # reviewed and committed (and re-recorded ones when update_snapshots is set).
+      - name: Upload Linux baselines
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: linux-baselines
           path: e2e/__screenshots__/linux/
+          if-no-files-found: ignore
