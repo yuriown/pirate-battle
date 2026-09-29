@@ -9,8 +9,11 @@ import type { EndReason, InputState, Projectile, Ship, ShipKind, SimCounters, Si
 export const SIM_STEP = 1 / 60;
 
 const HULL = { radius: 21, halfLength: 30 };
-const AVOID_OFFSETS = [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2.1, -2.1, Math.PI];
 const PROBE_DISTANCES = [45, 90, 135];
+const AVOID_STEP = 0.35;
+const AVOID_STEPS = 9;
+/** How long an enemy keeps its chosen detour side after the direct path clears (prevents dithering). */
+const AVOID_MEMORY_SEC = 1;
 
 /**
  * Deterministic combat simulation. Owns every continuous piece of match state; knows nothing
@@ -60,7 +63,9 @@ export class World {
   step(dt: number, input: Readonly<InputState>): void {
     if (this.status !== 'running') return;
 
-    this.time = Math.min(this.time + dt, this.config.sessionDurationSec);
+    const duration = this.config.sessionDurationSec;
+    // Snap to the duration so float accumulation (60 × 1/60 ≠ 1) cannot postpone the end by a step.
+    this.time = duration - (this.time + dt) < 1e-6 ? duration : this.time + dt;
     this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
 
     this.updatePlayer(dt, input);
@@ -135,14 +140,21 @@ export class World {
       const distance = dist(e.x, e.y, p.x, p.y);
 
       let targetSpeed = stats.maxSpeed;
+      let holding = false;
       if (e.kind === 'shooter') {
         const range = this.config.shooter.attackRange;
-        // Close in until comfortably inside the attack range, then hold position and aim.
-        if (distance < range * 0.8) targetSpeed = stats.maxSpeed * 0.15;
-        else if (distance < range) targetSpeed = stats.maxSpeed * 0.5;
+        // Close in until comfortably inside the attack range, then hold position and aim —
+        // but only with a clear line of fire; behind an island it keeps manoeuvring.
+        if (distance < range && hasLineOfSight(e.x, e.y, p.x, p.y)) {
+          holding = distance < range * 0.75;
+          targetSpeed = holding ? 0 : stats.maxSpeed * 0.4;
+        }
       }
 
-      const heading = this.steer(e, toPlayer);
+      // A shooter holding position aims straight at the player; moving ships steer around islands.
+      const heading = holding ? toPlayer : this.steer(e, toPlayer, dt);
+      // Bow blocked: slow down so the turn can happen instead of grinding along the shore.
+      if (!this.pathClear(e, e.rotation)) targetSpeed = Math.min(targetSpeed, stats.maxSpeed * 0.45);
       e.rotation = turnTowards(e.rotation, heading, stats.turnRate * dt);
       e.speed = approach(e.speed, targetSpeed, (e.speed < targetSpeed ? stats.acceleration : stats.deceleration) * dt);
       this.moveShip(e, dt);
@@ -151,24 +163,46 @@ export class World {
     }
   }
 
-  /** Picks the heading closest to `desired` whose short look-ahead path is free of obstacles. */
-  private steer(e: Ship, desired: number): number {
-    const pad = e.radius + 8;
-    for (const offset of AVOID_OFFSETS) {
-      const heading = desired + offset;
-      const cx = Math.cos(heading), cy = Math.sin(heading);
-      let clear = true;
-      for (const d of PROBE_DISTANCES) {
-        const px = e.x + cx * (d + e.halfLength);
-        const py = e.y + cy * (d + e.halfLength);
-        if (pointInObstacle(px, py, pad) || !insideArena(px, py, 10)) {
-          clear = false;
-          break;
-        }
-      }
-      if (clear) return heading;
+  /**
+   * Obstacle avoidance: go straight when the look-ahead path is free, otherwise take the
+   * nearest free heading on one side and keep that side for a while, so an enemy facing an
+   * island commits to going around it instead of alternating left/right against the shore.
+   */
+  private steer(e: Ship, desired: number, dt: number): number {
+    if (this.pathClear(e, desired)) {
+      e.avoidTimer = Math.max(0, e.avoidTimer - dt);
+      if (e.avoidTimer === 0) e.avoidSide = 0;
+      if (e.avoidSide === 0) return desired;
     }
-    return desired;
+    if (e.avoidSide === 0) e.avoidSide = this.freeSteps(e, desired, 1) <= this.freeSteps(e, desired, -1) ? 1 : -1;
+    e.avoidTimer = AVOID_MEMORY_SEC;
+    for (const side of [e.avoidSide, -e.avoidSide]) {
+      const k = this.freeSteps(e, desired, side);
+      if (k <= AVOID_STEPS) {
+        e.avoidSide = side;
+        return desired + side * k * AVOID_STEP;
+      }
+    }
+    return desired + e.avoidSide * (Math.PI / 2);
+  }
+
+  /** Number of AVOID_STEP increments towards `side` until the path is clear (AVOID_STEPS + 1 if never). */
+  private freeSteps(e: Ship, desired: number, side: number): number {
+    for (let k = e.avoidSide === 0 ? 1 : 0; k <= AVOID_STEPS; k++) {
+      if (this.pathClear(e, desired + side * k * AVOID_STEP)) return k;
+    }
+    return AVOID_STEPS + 1;
+  }
+
+  private pathClear(e: Ship, heading: number): boolean {
+    const pad = e.radius + 8;
+    const cx = Math.cos(heading), cy = Math.sin(heading);
+    for (const d of PROBE_DISTANCES) {
+      const px = e.x + cx * (d + e.halfLength);
+      const py = e.y + cy * (d + e.halfLength);
+      if (pointInObstacle(px, py, pad) || !insideArena(px, py, 10)) return false;
+    }
+    return true;
   }
 
   private tryShooterFire(e: Ship, distance: number): void {
@@ -417,6 +451,8 @@ export class World {
       radius: HULL.radius,
       halfLength: HULL.halfLength,
       cooldowns: { front: 0, left: 0, right: 0 },
+      avoidSide: 0,
+      avoidTimer: 0,
     };
   }
 

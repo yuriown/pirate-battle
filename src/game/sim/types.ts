@@ -38,6 +38,9 @@ export interface Ship {
   halfLength: number;
   /** Remaining cooldown per weapon, simulated seconds. */
   cooldowns: Record<WeaponSlot, number>;
+  /** Detour side chosen by the avoidance steering (-1, 0, 1) and how long it is remembered. */
+  avoidSide: number;
+  avoidTimer: number;
 }
 
 export interface Projectile {

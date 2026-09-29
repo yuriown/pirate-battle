@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatchRecord } from '@/api/contracts';
-import { buildMatchConfig, type PlayerOptions } from '@/game/config';
+import { buildMatchConfig, DEFAULT_GAMEPLAY, type GameplayConfig, type PlayerOptions } from '@/game/config';
 import { GameSession, type HudState, type MatchOutcome } from '@/game/GameSession';
 import { loadGameTextures, type GameTextures } from '@/game/render/assets';
 import { createStore, useStore, type Store } from '@/lib/store';
@@ -21,6 +21,8 @@ interface GameScreenProps {
 }
 
 type LoadState = { phase: 'loading'; progress: number } | { phase: 'error'; message: string } | { phase: 'ready'; textures: GameTextures };
+
+const TEST_NO_SPAWN_BASE: GameplayConfig = { ...DEFAULT_GAMEPLAY, spawn: { ...DEFAULT_GAMEPLAY.spawn, maxAlive: 0 } };
 
 const IDLE_HUD: Store<HudState> = createStore<HudState>({
   status: 'running', pauseReason: null, score: 0, timeRemainingSec: 0, health: 0, maxHealth: 0, endReason: null, matchIndex: 0,
@@ -105,7 +107,7 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
     const host = hostRef.current;
     if (!host) return;
     const s = new GameSession(textures, {
-      getConfig: () => buildMatchConfig(optionsRef.current),
+      getConfig: () => buildMatchConfig(optionsRef.current, testFlags.noSpawns ? TEST_NO_SPAWN_BASE : DEFAULT_GAMEPLAY),
       seed: testFlags.seed,
       manualClock: testFlags.manualClock,
       onEnd: (outcome) => setResult(onMatchEndRef.current(outcome)),

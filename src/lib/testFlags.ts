@@ -1,13 +1,15 @@
 import type { GameTestApi } from '@/game/GameSession';
 
 // Test instrumentation is opt-in through the URL (`?e2e`), so it never changes normal play.
-// `?seed=N` fixes the simulation RNG and `?clock=manual` hands the clock to the test runner.
+// `?seed=N` fixes the simulation RNG, `?clock=manual` hands the clock to the test runner and
+// `?spawns=off` disables automatic spawning so a test can arrange enemies itself.
 const params = new URLSearchParams(globalThis.location?.search ?? '');
 
 export const testFlags = {
   enabled: params.has('e2e'),
   seed: params.has('seed') ? Number(params.get('seed')) >>> 0 : undefined,
   manualClock: params.has('e2e') && params.get('clock') === 'manual',
+  noSpawns: params.has('e2e') && params.get('spawns') === 'off',
 };
 
 declare global {

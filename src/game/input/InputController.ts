@@ -26,6 +26,8 @@ export const PAUSE_KEYS = new Set(['Escape', 'KeyP']);
  */
 export class InputController {
   private keys = new Set<InputAction>();
+  /** Presses since the last sample: a tap shorter than one simulation step still registers once. */
+  private pulses = new Set<InputAction>();
   private touch = new Map<InputAction, Set<number>>();
   private target: Window | null = null;
   private onPause: (() => void) | null = null;
@@ -57,6 +59,7 @@ export class InputController {
   clear(): void {
     this.keys.clear();
     this.touch.clear();
+    this.pulses.clear();
   }
 
   pressTouch(action: InputAction, pointerId: number): void {
@@ -64,6 +67,7 @@ export class InputController {
     let set = this.touch.get(action);
     if (!set) this.touch.set(action, (set = new Set()));
     set.add(pointerId);
+    this.pulses.add(action);
   }
 
   releaseTouch(action: InputAction, pointerId: number): void {
@@ -72,8 +76,8 @@ export class InputController {
 
   sample(): InputState {
     if (!this.enabled) return { ...EMPTY_INPUT };
-    const held = (a: InputAction) => this.keys.has(a) || (this.touch.get(a)?.size ?? 0) > 0;
-    return {
+    const held = (a: InputAction) => this.keys.has(a) || this.pulses.has(a) || (this.touch.get(a)?.size ?? 0) > 0;
+    const state = {
       forward: held('forward'),
       turnLeft: held('turnLeft'),
       turnRight: held('turnRight'),
@@ -81,6 +85,8 @@ export class InputController {
       fireLeft: held('fireLeft'),
       fireRight: held('fireRight'),
     };
+    this.pulses.clear();
+    return state;
   }
 
   private handleKeyDown = (e: KeyboardEvent): void => {
@@ -95,6 +101,7 @@ export class InputController {
     if (!action || !this.enabled) return;
     e.preventDefault();
     this.keys.add(action);
+    if (!e.repeat) this.pulses.add(action);
   };
 
   private handleKeyUp = (e: KeyboardEvent): void => {

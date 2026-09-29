@@ -53,7 +53,11 @@ function HoldButton({ input, action, label, img, disabled, className = '' }: Hol
       disabled={disabled}
       tabIndex={-1}
       onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Capture is a nicety (finger sliding off); the press itself must still register.
+        }
         input.pressTouch(action, e.pointerId);
         setPressed(true);
       }}
