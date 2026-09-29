@@ -13,7 +13,7 @@ export function ControlsLegend({ compact = false }: { compact?: boolean }) {
       <h2 id="controls-title" className="pb-caption mb-2">
         Controls
       </h2>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+      <dl className={`grid gap-x-3 gap-y-1 ${compact ? 'grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_1fr]' : 'grid-cols-[auto_1fr]'}`}>
         {ROWS.map(([keys, action]) => (
           <div key={action} className="contents">
             <dt>

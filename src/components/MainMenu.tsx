@@ -13,13 +13,13 @@ interface MainMenuProps {
 export function MainMenu({ onPlay, onOptions, onOpenLog, lastResult, playerName }: MainMenuProps) {
   return (
     <main className="pb-backdrop" aria-labelledby="menu-title">
-      <div className="pb-panel w-full max-w-[460px] px-3 py-2 text-center">
+      <div className="pb-panel w-full max-w-[560px] px-3 py-1 text-center">
         <h1 id="menu-title" className="m-0">
-          <img src={icon.title} alt="Pirate Battle" className="mx-auto w-full max-w-[340px]" width={384} height={128} />
+          <img src={icon.title} alt="Pirate Battle" className="mx-auto w-full max-w-[300px]" width={384} height={128} />
         </h1>
         <p className="pb-caption mt-1">Set sail. Take command.</p>
 
-        <div className="mx-auto mt-4 flex w-60 flex-col gap-3">
+        <div className="mx-auto mt-3 flex w-60 flex-col gap-2">
           <button type="button" className="pb-btn" onClick={onPlay}>
             Play
           </button>
@@ -38,11 +38,11 @@ export function MainMenu({ onPlay, onOptions, onOpenLog, lastResult, playerName 
           </p>
         )}
 
-        <div className="mt-4 rounded-xl bg-black/25 p-3 text-left">
+        <div className="mt-3 rounded-xl bg-black/25 p-3 text-left">
           <ControlsLegend compact />
         </div>
 
-        <nav aria-label="Captain's log" className="mt-4 flex justify-center gap-3">
+        <nav aria-label="Captain's log" className="mt-3 flex justify-center gap-3">
           <button type="button" className="pb-btn pb-btn--secondary w-40" onClick={() => onOpenLog('ranking')}>
             Ranking
           </button>
