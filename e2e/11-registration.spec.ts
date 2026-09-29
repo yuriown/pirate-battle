@@ -57,8 +57,11 @@ test.describe('11. Match registration, both tabs updated, pending recovery after
     await expect(pending).toContainText('PENDING');
     expect(await mockDb(page)).toHaveLength(0);
 
+    // On startup the outbox is resent automatically; wait until that attempt has failed too.
+    const retry = pending.getByRole('button', { name: /Retry saving/ });
+    await expect(retry).toBeVisible({ timeout: 20_000 });
     await setScenario(page, 'normal');
-    await pending.getByRole('button', { name: /Retry saving/ }).click();
+    await retry.click();
     const saved = page.getByRole('tabpanel').locator('table').filter({ hasText: 'Saved matches' });
     await expect(saved.locator('tbody tr')).toHaveCount(1);
     await expect(pending).toHaveCount(0);

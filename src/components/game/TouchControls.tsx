@@ -13,15 +13,15 @@ interface TouchControlsProps {
  */
 export function TouchControls({ input, disabled }: TouchControlsProps) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-3 sm:p-5" data-testid="touch-controls">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-3 sm:p-5 short:p-2" data-testid="touch-controls">
       <div className="pointer-events-auto grid grid-cols-3 items-end gap-2" role="group" aria-label="Steering">
         <HoldButton input={input} action="turnLeft" label="Turn left" img={icon.turnLeft} disabled={disabled} />
-        <HoldButton input={input} action="forward" label="Sail forward" img={icon.forward} disabled={disabled} className="-translate-y-8" />
+        <HoldButton input={input} action="forward" label="Sail forward" img={icon.forward} disabled={disabled} className="-translate-y-8 short:-translate-y-6" />
         <HoldButton input={input} action="turnRight" label="Turn right" img={icon.turnRight} disabled={disabled} />
       </div>
       <div className="pointer-events-auto grid grid-cols-3 items-end gap-2" role="group" aria-label="Cannons">
         <HoldButton input={input} action="fireLeft" label="Fire port broadside" img={icon.fireLeft} disabled={disabled} />
-        <HoldButton input={input} action="fireFront" label="Fire front cannon" img={icon.fireFront} disabled={disabled} className="-translate-y-8" />
+        <HoldButton input={input} action="fireFront" label="Fire front cannon" img={icon.fireFront} disabled={disabled} className="-translate-y-8 short:-translate-y-6" />
         <HoldButton input={input} action="fireRight" label="Fire starboard broadside" img={icon.fireRight} disabled={disabled} />
       </div>
     </div>

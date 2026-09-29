@@ -167,7 +167,7 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
         <OptionsDialog options={options} inMatch onSave={onSaveOptions} onClose={() => setOptionsOpen(false)} />
       )}
       {result && hud.status === 'ended' && (
-        <Dialog labelledBy="result-title" className="max-w-[440px] px-4 py-4" testId="result-dialog">
+        <Dialog labelledBy="result-title" className="max-w-[440px] px-4 py-4 short:max-w-[560px] short:py-1" testId="result-dialog">
           <ResultPanel record={result} onPlayAgain={restart} onMainMenu={onExit} />
         </Dialog>
       )}

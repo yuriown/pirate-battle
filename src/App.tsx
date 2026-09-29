@@ -91,7 +91,7 @@ export default function App() {
         <GameScreen key={screen.key} options={options} onSaveOptions={updateOptions} onMatchEnd={handleMatchEnd} onExit={toMenu} />
       )}
       {screen.name === 'result' && lastResult && (
-        <Dialog labelledBy="result-title" className="max-w-[440px] px-4 py-4" testId="result-dialog">
+        <Dialog labelledBy="result-title" className="max-w-[440px] px-4 py-4 short:max-w-[560px] short:py-1" testId="result-dialog">
           <ResultPanel record={lastResult} onPlayAgain={play} onMainMenu={toMenu} />
         </Dialog>
       )}

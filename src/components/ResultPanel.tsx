@@ -15,11 +15,11 @@ export function ResultPanel({ record, onPlayAgain, onMainMenu }: ResultPanelProp
   const destroyed = record.endReason === 'destroyed';
 
   return (
-    <div className="flex flex-col items-center gap-3 text-center" data-testid="result-panel">
-      <h2 id="result-title" className="pb-heading text-3xl">
+    <div className="flex flex-col items-center gap-3 text-center short:gap-1" data-testid="result-panel">
+      <h2 id="result-title" className="pb-heading text-3xl short:text-xl">
         {destroyed ? 'Ship Destroyed' : 'Battle Complete'}
       </h2>
-      <p className="text-7xl font-extrabold leading-none text-amber-300 [text-shadow:0_3px_0_rgba(0,0,0,0.45)]" data-testid="result-score">
+      <p className="text-7xl short:text-4xl font-extrabold leading-none text-amber-300 [text-shadow:0_3px_0_rgba(0,0,0,0.45)]" data-testid="result-score">
         {record.score}
       </p>
       <p className="pb-caption" data-testid="result-summary">
@@ -30,7 +30,7 @@ export function ResultPanel({ record, onPlayAgain, onMainMenu }: ResultPanelProp
         {record.config.sessionDurationSec} s battle · {record.config.spawnIntervalSec} s spawn interval
       </p>
 
-      <div className="min-h-[2.5rem]" role="status" aria-live="polite" data-testid="submission-status" data-status={status}>
+      <div className="min-h-[2.5rem] short:min-h-0" role="status" aria-live="polite" data-testid="submission-status" data-status={status}>
         {status === 'saving' && <p className="text-sm font-bold text-sky-200">Recording your match…</p>}
         {status === 'saved' && <p className="text-sm font-bold text-emerald-300">Match recorded in the ranking and history.</p>}
         {(status === 'failed' || status === 'unknown') && (
@@ -45,7 +45,7 @@ export function ResultPanel({ record, onPlayAgain, onMainMenu }: ResultPanelProp
         )}
       </div>
 
-      <div className="flex w-60 flex-col gap-3">
+      <div className="flex w-60 flex-col gap-3 short:w-auto short:flex-row">
         <button type="button" className="pb-btn" onClick={onPlayAgain}>
           Play Again
         </button>

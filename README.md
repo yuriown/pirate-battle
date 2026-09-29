@@ -6,6 +6,7 @@ islands, sink Chasers and Shooters, and climb the ranking before time runs out.
 - Live build: https://pirate-battle-plum.vercel.app/ (Vercel, static build with the MSW mocks)
 - Architecture and design decisions: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Performance report: [docs/performance/PERFORMANCE.md](docs/performance/PERFORMANCE.md)
+- Last Playwright run (80/80 passed, desktop + mobile Chromium): [docs/test-report/index.html](docs/test-report/index.html) — open with `npx playwright show-report docs/test-report`
 
 | Concern | Technology |
 | --- | --- |

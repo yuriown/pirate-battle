@@ -16,10 +16,10 @@ export function Hud({ hud, onPause }: HudProps) {
 
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-4 short:p-1.5">
         <div className="flex items-center gap-1" role="group" aria-label="Hull">
-          <img src={icon.heart} alt="" className="h-9 w-9 sm:h-11 sm:w-11" />
-          <div className="relative h-[36px] w-[192px] sm:h-[48px] sm:w-[256px]">
+          <img src={icon.heart} alt="" className="h-9 w-9 sm:h-11 sm:w-11 short:h-7 short:w-7" />
+          <div className="relative h-[36px] w-[192px] sm:h-[48px] sm:w-[256px] short:h-[30px] short:w-[160px]">
             <img src="/assets/ui/2x/hud/health_frame.png" alt="" className="absolute inset-0 h-full w-full" />
             <img
               src={`/assets/ui/2x/hud/health_fill_${fill}.png`}
@@ -27,7 +27,7 @@ export function Hud({ hud, onPause }: HudProps) {
               className="absolute inset-0 h-full w-full"
               style={{ clipPath: `inset(0 ${100 - (ratio <= 0 ? 0 : visible)}% 0 0)` }}
             />
-            <span className="absolute inset-0 flex items-center justify-center text-sm font-extrabold text-white [text-shadow:0_1px_2px_#000] sm:text-base" data-testid="hud-health">
+            <span className="absolute inset-0 flex items-center justify-center text-sm font-extrabold text-white [text-shadow:0_1px_2px_#000] sm:text-base short:text-xs" data-testid="hud-health">
               {hud.health} / {hud.maxHealth}
             </span>
           </div>
