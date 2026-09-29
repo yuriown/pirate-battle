@@ -4,8 +4,9 @@ All numbers come from `npm run profile` (`scripts/profile.mjs`) on 2026-09-29, a
 build (`npm run build` + `vite preview`) of the reviewed code (commit `a19db0e`, which added render
 interpolation and capsule-based ship separation). Raw data: [`profile-results.json`](profile-results.json).
 Per-second samples: [`per-second-720p-aim.csv`](per-second-720p-aim.csv),
-[`per-second-1080p-aim.csv`](per-second-1080p-aim.csv). An earlier run on the pre-review build is kept in
-[`profile-results-headed-attempt.json`](profile-results-headed-attempt.json) and summarised below for comparison.
+[`per-second-1080p-aim.csv`](per-second-1080p-aim.csv). The pre-review build's run is summarised below for comparison (its raw data is
+`docs/performance/profile-results.json` at commit `66c4f6f`); an even earlier exploratory run is kept in
+[`profile-results-headed-attempt.json`](profile-results-headed-attempt.json).
 
 ## Reference environment
 
