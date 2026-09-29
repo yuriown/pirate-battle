@@ -1,4 +1,4 @@
-import { Texture, CanvasSource } from 'pixi.js';
+import { Texture } from 'pixi.js';
 import { ShipType } from '@/types/game.types';
 
 export class AssetManager {
@@ -112,7 +112,7 @@ export class AssetManager {
     ctx.fillRect(-1.5, 11, 3, 2); // jaw
 
     ctx.restore();
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   /**
@@ -162,7 +162,7 @@ export class AssetManager {
     ctx.stroke();
 
     ctx.restore();
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   /**
@@ -207,7 +207,7 @@ export class AssetManager {
     ctx.stroke();
 
     ctx.restore();
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   /**
@@ -230,7 +230,7 @@ export class AssetManager {
     ctx.arc(12, 12, 9, 0, Math.PI * 2);
     ctx.fill();
 
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   private static createEnemyCannonballTexture(): Texture {
@@ -250,7 +250,7 @@ export class AssetManager {
     ctx.arc(12, 12, 9, 0, Math.PI * 2);
     ctx.fill();
 
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   /**
@@ -277,7 +277,7 @@ export class AssetManager {
       ctx.stroke();
     }
 
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 
   /**
@@ -321,6 +321,6 @@ export class AssetManager {
       ctx.fill();
     }
 
-    return Texture.from(new CanvasSource({ resource: canvas }));
+    return Texture.from(canvas);
   }
 }
