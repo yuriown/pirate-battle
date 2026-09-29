@@ -1,6 +1,6 @@
 import type { MatchRecord } from '@/api/contracts';
 import { useMatchSubmissions } from '@/api/useMatchSubmission';
-import { formatClock } from './ui/icons';
+import { formatDuration } from './menu/format';
 
 interface ResultPanelProps {
   record: MatchRecord;
@@ -23,7 +23,7 @@ export function ResultPanel({ record, onPlayAgain, onMainMenu }: ResultPanelProp
         {record.score}
       </p>
       <p className="pb-caption" data-testid="result-summary">
-        {record.score === 1 ? 'Point' : 'Points'} · <span aria-label={`${Math.round(record.durationMs / 1000)} seconds played`}>{formatClock(record.durationMs / 1000)}</span> ·{' '}
+        {record.score === 1 ? 'Point' : 'Points'} · <span aria-label={`${Math.floor(record.durationMs / 1000)} seconds played`}>{formatDuration(record.durationMs)}</span> ·{' '}
         {destroyed ? 'Defeated' : 'Time up'}
       </p>
       <p className="text-xs text-amber-50/70">

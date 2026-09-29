@@ -3,7 +3,7 @@
 A top-down 2D naval shooter built with **React**, **TypeScript (strict)** and **PixiJS**. Sail between
 islands, sink Chasers and Shooters, and climb the ranking before time runs out.
 
-- Live build: _to be added after deployment_
+- Live build: https://pirate-battle-plum.vercel.app/ (Vercel, static build with the MSW mocks)
 - Architecture and design decisions: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Performance report: [docs/performance/PERFORMANCE.md](docs/performance/PERFORMANCE.md)
 

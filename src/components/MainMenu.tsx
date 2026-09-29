@@ -1,6 +1,7 @@
 import type { MatchRecord } from '@/api/contracts';
 import { ControlsLegend } from './ControlsLegend';
-import { formatClock, icon } from './ui/icons';
+import { formatDuration } from './menu/format';
+import { icon } from './ui/icons';
 
 interface MainMenuProps {
   onPlay: () => void;
@@ -33,7 +34,7 @@ export function MainMenu({ onPlay, onOptions, onOpenLog, lastResult, playerName 
         </p>
         {lastResult && (
           <p className="mt-1 text-xs text-amber-50/70" data-testid="last-result">
-            Last battle: {lastResult.score} pts · {formatClock(lastResult.durationMs / 1000)} ·{' '}
+            Last battle: {lastResult.score} pts · {formatDuration(lastResult.durationMs)} ·{' '}
             {lastResult.endReason === 'time_up' ? 'time up' : 'defeated'}
           </p>
         )}
