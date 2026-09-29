@@ -20,6 +20,7 @@ export default tseslint.config(
   {
     files: ['**/*.{js,mjs}'],
     extends: [js.configs.recommended],
-    languageOptions: { ecmaVersion: 2022, sourceType: 'module', globals: { ...globals.node } },
+    // Scripts drive Playwright: code inside page.evaluate runs in the browser.
+    languageOptions: { ecmaVersion: 2022, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
   },
 );

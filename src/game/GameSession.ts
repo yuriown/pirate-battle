@@ -171,7 +171,8 @@ export class GameSession {
 
   private tick = (ticker: Ticker): void => {
     this.stats.frames++;
-    if (this.stats.frameMsSamples.length < 20000) this.stats.frameMsSamples.push(ticker.deltaMS);
+    // 30k samples = over 4 min at 120 Hz, enough for the longest (180 s) match.
+    if (this.stats.frameMsSamples.length < 30000) this.stats.frameMsSamples.push(ticker.deltaMS);
     if (this.manualClock) {
       this.renderFrame(0);
       return;
