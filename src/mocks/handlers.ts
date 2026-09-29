@@ -1,202 +1,254 @@
-import { http, HttpResponse, delay } from 'msw';
-import { MatchResult, RankingEntry, NetworkScenario } from '@/types/game.types';
-import { INITIAL_RANKING_FIXTURES } from './fixtures';
+// MSW handlers shared by dev, Playwright and the published build.
+// Every response body is computed when the request ARRIVES and only then delayed, so a slow
+// response faithfully carries the older database revision it was computed against.
+import { delay, http, HttpResponse } from 'msw';
+import { API_ROUTES, type ApiErrorBody, type MatchRecord, type Page, type RankingEntry } from '@/api/contracts';
+import { isMatchRecord } from '@/api/guards';
+import { listRecords, readDb, upsertRecord } from './db';
+import { manyPagesFixtures, standardFixtures } from './fixtures';
+import { mulberry32 } from './rng';
+import { getControl, subscribeControl, type MockControl } from './scenarios';
 
-const STORAGE_KEY_MATCHES = 'pirate_battle_matches_v1';
-const STORAGE_KEY_SCENARIO = 'pirate_battle_network_scenario_v1';
+const MAX_PAGE_SIZE = 50;
 
-// Load stored matches or initialize
-function getStoredMatches(): MatchResult[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_MATCHES);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to load matches from storage', e);
+// Per-session counters; restarted whenever the control state changes so a scenario replays identically.
+let requestCount = 0;
+let readCount = 0;
+const flakyAttempts = new Map<string, number>();
+
+export function resetHandlerState(): void {
+  requestCount = 0;
+  readCount = 0;
+  flakyAttempts.clear();
+}
+subscribeControl(resetHandlerState);
+
+function seededBetween(control: MockControl, min: number, max: number): number {
+  const rnd = mulberry32((control.seed ^ Math.imul(requestCount, 0x9e3779b1)) >>> 0);
+  return Math.round(min + rnd() * (max - min));
+}
+
+type Kind = 'read' | 'write';
+
+function latencyFor(control: MockControl, kind: Kind): number {
+  const instant = control.latencyMode === 'instant';
+  const pastTimeout = control.clientTimeoutMs + 1500;
+  switch (control.scenario) {
+    case 'timeout':
+      return pastTimeout;
+    case 'out-of-order':
+      if (kind === 'read') {
+        const slow = readCount % 2 === 1;
+        if (instant) return slow ? 600 : 50;
+        return slow ? 2500 : 200;
+      }
+      break;
+    case 'slow':
+      return instant ? 0 : 2500;
+    case 'jitter':
+      return instant ? 0 : seededBetween(control, 100, 3000);
   }
-  return [];
+  return instant ? 0 : seededBetween(control, 150, 450);
 }
 
-function saveStoredMatches(matches: MatchResult[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_MATCHES, JSON.stringify(matches));
-  } catch (e) {
-    console.error('Failed to save matches', e);
-  }
+function errorJson(status: number, error: string, message: string) {
+  return HttpResponse.json<ApiErrorBody>({ error, message }, { status });
 }
 
-export function getCurrentScenario(): NetworkScenario {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY_SCENARIO);
-    if (saved) return saved as NetworkScenario;
-  } catch {}
-  return 'DEFAULT';
-}
+type Endpoint = 'ranking' | 'history' | 'submit';
 
-export function setNetworkScenario(scenario: NetworkScenario): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_SCENARIO, scenario);
-  } catch {}
-}
-
-export function resetMockData(): void {
-  localStorage.removeItem(STORAGE_KEY_MATCHES);
-  localStorage.removeItem(STORAGE_KEY_SCENARIO);
-}
-
-// Network simulation helper
-async function applyNetworkConditions() {
-  const scenario = getCurrentScenario();
-
-  switch (scenario) {
-    case 'SLOW_NETWORK':
-      await delay(1200 + Math.random() * 400);
-      break;
-    case 'HIGH_LATENCY':
-      await delay(2500 + Math.random() * 1000);
-      break;
-    case 'TIMEOUT':
-      await delay(6000); // Exceeds axios timeout (5000ms)
-      break;
-    case 'DEFAULT':
+/** Scenario-wide failures that apply before any work is done. */
+function injectedFailure(control: MockControl, endpoint: Endpoint): Response | null {
+  switch (control.scenario) {
+    case 'network-error':
+      return HttpResponse.error();
+    case 'http-400':
+      return errorJson(400, 'bad_request', 'The server rejected the request (simulated 400).');
+    case 'http-500':
+      return errorJson(500, 'internal_error', 'The server hit an internal error (simulated 500).');
+    case 'unavailable':
+      return errorJson(503, 'unavailable', 'The server is temporarily unavailable (simulated 503).');
+    case 'ranking-fails':
+      return endpoint === 'ranking'
+        ? errorJson(500, 'internal_error', 'The ranking service failed (simulated 500).')
+        : null;
+    case 'history-fails':
+      return endpoint === 'history'
+        ? errorJson(503, 'unavailable', 'The history service is unavailable (simulated 503).')
+        : null;
     default:
-      await delay(100 + Math.random() * 100);
-      break;
+      return null;
   }
+}
 
-  if (scenario === 'ERROR_500') {
-    throw new HttpResponse(JSON.stringify({ error: 'Internal Server Error (Simulated 500)' }), { status: 500 });
-  }
+function parsePositiveInt(value: string | null, fallback: number): number | null {
+  if (value === null) return fallback;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 
-  if (scenario === 'OFFLINE') {
-    throw HttpResponse.error();
-  }
+function parsePositiveNumber(value: string | null): number | null {
+  if (value === null || value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function readPagination(url: URL): { page: number; pageSize: number } | null {
+  const page = parsePositiveInt(url.searchParams.get('page'), 1);
+  const pageSize = parsePositiveInt(url.searchParams.get('pageSize'), 10);
+  if (page === null || pageSize === null || pageSize > MAX_PAGE_SIZE) return null;
+  return { page, pageSize };
+}
+
+function paginate<T>(items: T[], page: number, pageSize: number, revision: number): Page<T> {
+  const start = (page - 1) * pageSize;
+  return {
+    items: items.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total: items.length,
+    totalPages: Math.max(1, Math.ceil(items.length / pageSize)),
+    revision,
+  };
+}
+
+function fixturesFor(control: MockControl): MatchRecord[] {
+  if (control.scenario === 'empty') return [];
+  return control.scenario === 'many-pages' ? manyPagesFixtures() : standardFixtures();
+}
+
+function compareIds(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/** Score DESC, survived longer, achieved first, then matchId: a total, stable order. */
+export function compareRanking(a: MatchRecord, b: MatchRecord): number {
+  return (
+    b.score - a.score ||
+    b.durationMs - a.durationMs ||
+    Date.parse(a.playedAt) - Date.parse(b.playedAt) ||
+    compareIds(a.matchId, b.matchId)
+  );
+}
+
+async function respondAfter(control: MockControl, kind: Kind, response: Response): Promise<Response> {
+  const ms = latencyFor(control, kind);
+  if (ms > 0) await delay(ms);
+  return response;
+}
+
+function beginRequest(kind: Kind): MockControl {
+  requestCount += 1;
+  if (kind === 'read') readCount += 1;
+  return getControl();
 }
 
 export const handlers = [
-  // 1. GET /api/ranking
-  http.get('/api/ranking', async ({ request }) => {
-    await applyNetworkConditions();
-
-    const scenario = getCurrentScenario();
-    if (scenario === 'EMPTY_LIST') {
-      return HttpResponse.json({
-        data: [],
-        page: 1,
-        pageSize: 10,
-        totalItems: 0,
-        totalPages: 0,
-      });
-    }
+  http.get(API_ROUTES.ranking, ({ request }) => {
+    const control = beginRequest('read');
+    const failure = injectedFailure(control, 'ranking');
+    if (failure) return respondAfter(control, 'read', failure);
 
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '5', 10);
+    const pagination = readPagination(url);
+    const sessionDurationSec = parsePositiveNumber(url.searchParams.get('sessionDurationSec'));
+    const spawnIntervalSec = parsePositiveNumber(url.searchParams.get('spawnIntervalSec'));
+    if (!pagination || sessionDurationSec === null || spawnIntervalSec === null) {
+      return respondAfter(
+        control,
+        'read',
+        errorJson(400, 'invalid_query', 'Invalid configuration or pagination parameters.'),
+      );
+    }
 
-    // Merge fixtures with recorded player matches
-    const playerMatches = getStoredMatches();
-    const allEntries: RankingEntry[] = [
-      ...INITIAL_RANKING_FIXTURES,
-      ...playerMatches.map(m => ({
-        rank: 0,
-        matchId: m.id,
-        playerId: m.playerId,
-        playerName: m.playerName,
-        score: m.score,
-        durationSeconds: m.durationSeconds,
-        date: m.date,
-        config: m.configSnapshot,
-      })),
-    ];
-
-    // Sort by score desc -> duration desc -> date desc (deterministic tiebreaker)
-    allEntries.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.durationSeconds !== a.durationSeconds) return b.durationSeconds - a.durationSeconds;
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
-    });
-
-    // Assign rank
-    allEntries.forEach((entry, idx) => {
-      entry.rank = idx + 1;
-    });
-
-    const totalItems = allEntries.length;
-    const totalPages = Math.ceil(totalItems / pageSize) || 1;
-    const startIndex = (page - 1) * pageSize;
-    const paginatedData = allEntries.slice(startIndex, startIndex + pageSize);
-
-    return HttpResponse.json({
-      data: paginatedData,
-      page,
-      pageSize,
-      totalItems,
-      totalPages,
-    });
+    const { revision } = readDb();
+    const records = control.scenario === 'empty' ? [] : listRecords();
+    const ranked: RankingEntry[] = [...fixturesFor(control), ...records]
+      .filter(
+        (r) => r.config.sessionDurationSec === sessionDurationSec && r.config.spawnIntervalSec === spawnIntervalSec,
+      )
+      .sort(compareRanking)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+    return respondAfter(
+      control,
+      'read',
+      HttpResponse.json(paginate(ranked, pagination.page, pagination.pageSize, revision)),
+    );
   }),
 
-  // 2. GET /api/matches (Player History)
-  http.get('/api/matches', async ({ request }) => {
-    await applyNetworkConditions();
-
-    const scenario = getCurrentScenario();
-    if (scenario === 'EMPTY_LIST') {
-      return HttpResponse.json({
-        data: [],
-        page: 1,
-        pageSize: 5,
-        totalItems: 0,
-        totalPages: 0,
-      });
-    }
+  http.get(API_ROUTES.matches, ({ request }) => {
+    const control = beginRequest('read');
+    const failure = injectedFailure(control, 'history');
+    if (failure) return respondAfter(control, 'read', failure);
 
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '5', 10);
+    const pagination = readPagination(url);
+    const playerId = url.searchParams.get('playerId');
+    if (!pagination || !playerId) {
+      return respondAfter(control, 'read', errorJson(400, 'invalid_query', 'Invalid player or pagination parameters.'));
+    }
 
-    const matches = getStoredMatches();
-    // Sort newest first
-    matches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    const totalItems = matches.length;
-    const totalPages = Math.ceil(totalItems / pageSize) || 1;
-    const startIndex = (page - 1) * pageSize;
-    const paginatedData = matches.slice(startIndex, startIndex + pageSize);
-
-    return HttpResponse.json({
-      data: paginatedData,
-      page,
-      pageSize,
-      totalItems,
-      totalPages,
-    });
+    const { revision } = readDb();
+    const mine = (control.scenario === 'empty' ? [] : listRecords())
+      .filter((r) => r.playerId === playerId)
+      .sort((a, b) => Date.parse(b.playedAt) - Date.parse(a.playedAt) || compareIds(a.matchId, b.matchId));
+    return respondAfter(
+      control,
+      'read',
+      HttpResponse.json(paginate(mine, pagination.page, pagination.pageSize, revision)),
+    );
   }),
 
-  // 3. POST /api/matches (Record Match Result)
-  http.post('/api/matches', async ({ request }) => {
-    await applyNetworkConditions();
+  http.post(API_ROUTES.matches, async ({ request }) => {
+    const control = beginRequest('write');
+    if (control.scenario === 'timeout') {
+      // Hangs WITHOUT committing, unlike post-timeout-after-commit.
+      return respondAfter(control, 'write', errorJson(504, 'timeout', 'Gateway timeout (simulated).'));
+    }
+    const failure = injectedFailure(control, 'submit');
+    if (failure) return respondAfter(control, 'write', failure);
 
-    const body = (await request.json()) as MatchResult;
-    if (!body || !body.id) {
-      return HttpResponse.json({ error: 'Invalid match payload' }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      body = undefined;
+    }
+    if (!isMatchRecord(body)) {
+      return respondAfter(control, 'write', errorJson(422, 'invalid_match', 'The match record is malformed.'));
     }
 
-    const matches = getStoredMatches();
-
-    // Idempotency check: If match already exists, return existing without duplicating
-    const existingIndex = matches.findIndex(m => m.id === body.id);
-    if (existingIndex >= 0) {
-      return HttpResponse.json(matches[existingIndex], { status: 200 });
+    if (control.scenario === 'flaky-post') {
+      const attempt = (flakyAttempts.get(body.matchId) ?? 0) + 1;
+      flakyAttempts.set(body.matchId, attempt);
+      if (attempt <= 2) {
+        return respondAfter(
+          control,
+          'write',
+          errorJson(503, 'unavailable', `Registration failed (simulated, attempt ${attempt}).`),
+        );
+      }
     }
 
-    const newMatch: MatchResult = {
-      ...body,
-      submittedAt: new Date().toISOString(),
-      status: 'SUCCESS',
-    };
-
-    matches.unshift(newMatch);
-    saveStoredMatches(matches);
-
-    return HttpResponse.json(newMatch, { status: 201 });
+    // Store only contract fields so extra client properties never leak into records.
+    const { matchId, playerId, playerName, playedAt, score, durationMs, endReason, config } = body;
+    const result = upsertRecord({
+      matchId,
+      playerId,
+      playerName,
+      playedAt,
+      score,
+      durationMs,
+      endReason,
+      config: { sessionDurationSec: config.sessionDurationSec, spawnIntervalSec: config.spawnIntervalSec },
+    });
+    const response = HttpResponse.json(result, { status: result.created ? 201 : 200 });
+    if (control.scenario === 'post-timeout-after-commit' && result.created) {
+      // Committed, but the answer arrives after the client gave up; the retry then finds the record.
+      await delay(control.clientTimeoutMs + 1500);
+      return response;
+    }
+    return respondAfter(control, 'write', response);
   }),
 ];

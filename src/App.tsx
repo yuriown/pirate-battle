@@ -1,173 +1,101 @@
-import { useState, useRef } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { GameScreen, GameConfig, GameSnapshot, EndReason, MatchResult, NetworkScenario } from '@/types/game.types';
-import { loadSavedConfig } from '@/game/config';
-import { PirateEngine } from '@/game/PirateEngine';
-import { useSubmitMatch } from '@/hooks/useGameQueries';
-import { getCurrentScenario } from '@/mocks/handlers';
+import { useCallback, useState } from 'react';
+import type { MatchRecord } from '@/api/contracts';
+import { enqueueMatch } from '@/api/useMatchSubmission';
+import { sound } from '@/game/audio/SoundManager';
+import type { PlayerOptions } from '@/game/config';
+import type { MatchOutcome } from '@/game/GameSession';
+import { loadOptions, saveOptions } from '@/game/options';
+import { loadLastResult, resultScreenWasOpen, saveLastResult, setResultScreenOpen } from '@/lib/lastResult';
+import { generateId } from '@/net/uuid';
+import { getPlayer, usePlayer } from '@/player/identity';
+import { CaptainsLog, type LogTab } from './components/CaptainsLog';
+import { NetworkDevPanel } from './components/dev/NetworkDevPanel';
+import { GameScreen } from './components/game/GameScreen';
+import { MainMenu } from './components/MainMenu';
+import { OptionsDialog } from './components/OptionsDialog';
+import { ResultPanel } from './components/ResultPanel';
+import { Dialog } from './components/ui/Dialog';
 
-import { Navbar } from '@/components/Navbar';
-import { MainMenu } from '@/components/MainMenu';
-import { OptionsModal } from '@/components/OptionsModal';
-import { GameCanvas } from '@/components/GameCanvas';
-import { GameHUD } from '@/components/GameHUD';
-import { PauseOverlay } from '@/components/PauseOverlay';
-import { GameOverModal } from '@/components/GameOverModal';
-import { NetworkDevPanel } from '@/components/NetworkDevPanel';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-    },
-  },
-});
-
-function PirateBattleApp() {
-  const [screen, setScreen] = useState<GameScreen>('MENU');
-  const [config, setConfig] = useState<GameConfig>(loadSavedConfig());
-  const [isOptionsOpen, setIsOptionsOpen] = useState(false);
-  const [isDevPanelOpen, setIsDevPanelOpen] = useState(false);
-  const [networkScenario, setNetworkScenario] = useState<NetworkScenario>(getCurrentScenario());
-
-  // Game Engine & Snapshot
-  const engineRef = useRef<PirateEngine | null>(null);
-  const [snapshot, setSnapshot] = useState<GameSnapshot>({
-    score: 0,
-    timeRemaining: config.sessionDuration,
-    sessionDuration: config.sessionDuration,
-    playerHealth: config.playerMaxHealth,
-    playerMaxHealth: config.playerMaxHealth,
-    isPaused: false,
-    isGameOver: false,
-    endReason: null,
-    chaserCount: 0,
-    shooterCount: 0,
-  });
-
-  // End of game record
-  const [lastMatch, setLastMatch] = useState<MatchResult | null>(null);
-  const [submissionStatus, setSubmissionStatus] = useState<'IDLE' | 'PENDING' | 'SUCCESS' | 'ERROR'>('IDLE');
-  const submitMutation = useSubmitMatch();
-
-  const handleStartGame = () => {
-    setScreen('PLAYING');
-    setSubmissionStatus('IDLE');
-  };
-
-  const handleGameOver = (score: number, durationSeconds: number, reason: EndReason) => {
-    const matchId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const result: MatchResult = {
-      id: matchId,
-      playerId: 'local_player',
-      playerName: 'Captain Yuri',
-      score,
-      durationSeconds,
-      date: new Date().toISOString(),
-      endReason: reason,
-      configSnapshot: {
-        sessionDuration: config.sessionDuration,
-        enemySpawnInterval: config.enemySpawnInterval,
-      },
-    };
-
-    setLastMatch(result);
-    setScreen('GAME_OVER');
-
-    // Auto submit to Ranking and Match History API
-    setSubmissionStatus('PENDING');
-    submitMutation.mutate(result, {
-      onSuccess: () => setSubmissionStatus('SUCCESS'),
-      onError: () => setSubmissionStatus('ERROR'),
-    });
-  };
-
-  const handleRetrySubmit = () => {
-    if (!lastMatch) return;
-    setSubmissionStatus('PENDING');
-    submitMutation.mutate(lastMatch, {
-      onSuccess: () => setSubmissionStatus('SUCCESS'),
-      onError: () => setSubmissionStatus('ERROR'),
-    });
-  };
-
-  return (
-    <div className="w-screen h-screen flex flex-col bg-ocean-900 text-slate-100 overflow-hidden font-sans select-none">
-      <Navbar
-        onOpenDevPanel={() => setIsDevPanelOpen(true)}
-        networkScenario={networkScenario}
-      />
-
-      <main className="flex-1 relative flex overflow-hidden">
-        {screen === 'MENU' && (
-          <MainMenu
-            onStartGame={handleStartGame}
-            onOpenOptions={() => setIsOptionsOpen(true)}
-          />
-        )}
-
-        {screen === 'PLAYING' && (
-          <div className="relative w-full h-full">
-            <GameCanvas
-              config={config}
-              onSnapshotUpdate={setSnapshot}
-              onGameOver={handleGameOver}
-              engineRef={engineRef}
-            />
-            <GameHUD
-              snapshot={snapshot}
-              onPause={() => engineRef.current?.setPaused(true)}
-              engine={engineRef.current}
-            />
-            {snapshot.isPaused && (
-              <PauseOverlay
-                onResume={() => engineRef.current?.setPaused(false)}
-                onRestart={() => engineRef.current?.resetGame()}
-                onSurrender={() => {
-                  engineRef.current?.destroy();
-                  setScreen('MENU');
-                }}
-              />
-            )}
-          </div>
-        )}
-
-        {screen === 'GAME_OVER' && lastMatch && (
-          <GameOverModal
-            score={lastMatch.score}
-            durationSeconds={lastMatch.durationSeconds}
-            reason={lastMatch.endReason}
-            submissionStatus={submissionStatus}
-            onPlayAgain={handleStartGame}
-            onMainMenu={() => setScreen('MENU')}
-            onRetrySubmit={handleRetrySubmit}
-          />
-        )}
-      </main>
-
-      {/* Options Modal */}
-      {isOptionsOpen && (
-        <OptionsModal
-          config={config}
-          onClose={() => setIsOptionsOpen(false)}
-          onSave={(newCfg) => setConfig(newCfg)}
-        />
-      )}
-
-      {/* Network Dev Panel */}
-      <NetworkDevPanel
-        isOpen={isDevPanelOpen}
-        onClose={() => setIsDevPanelOpen(false)}
-        onScenarioChange={(sc) => setNetworkScenario(sc)}
-      />
-    </div>
-  );
-}
+type Screen = { name: 'menu' } | { name: 'log'; tab: LogTab } | { name: 'game'; key: number } | { name: 'result' };
 
 export default function App() {
+  const player = usePlayer();
+  const [options, setOptions] = useState<PlayerOptions>(loadOptions);
+  const [lastResult, setLastResult] = useState<MatchRecord | null>(loadLastResult);
+  const [screen, setScreen] = useState<Screen>(() => (resultScreenWasOpen() && loadLastResult() ? { name: 'result' } : { name: 'menu' }));
+  const [optionsOpen, setOptionsOpen] = useState(false);
+
+  const updateOptions = useCallback((next: PlayerOptions) => {
+    saveOptions(next);
+    setOptions(next);
+  }, []);
+
+  const play = () => {
+    sound.unlock();
+    setResultScreenOpen(false);
+    setScreen({ name: 'game', key: Date.now() });
+  };
+
+  const toMenu = () => {
+    setResultScreenOpen(false);
+    setScreen({ name: 'menu' });
+  };
+
+  /** A completed match: persist locally first, then queue its (idempotent) registration. */
+  const handleMatchEnd = useCallback((outcome: MatchOutcome): MatchRecord => {
+    const p = getPlayer();
+    const record: MatchRecord = {
+      matchId: generateId(),
+      playerId: p.playerId,
+      playerName: p.playerName,
+      playedAt: new Date().toISOString(),
+      score: outcome.score,
+      durationMs: outcome.durationMs,
+      endReason: outcome.endReason,
+      config: { sessionDurationSec: outcome.config.sessionDurationSec, spawnIntervalSec: outcome.config.spawn.intervalSec },
+    };
+    saveLastResult(record);
+    setLastResult(record);
+    enqueueMatch(record);
+    return record;
+  }, []);
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <PirateBattleApp />
-    </QueryClientProvider>
+    <>
+      {screen.name === 'menu' && (
+        <>
+          <MainMenu
+            onPlay={play}
+            onOptions={() => setOptionsOpen(true)}
+            onOpenLog={(tab) => setScreen({ name: 'log', tab })}
+            lastResult={lastResult}
+            playerName={player.playerName}
+          />
+          <NetworkDevPanel />
+        </>
+      )}
+      {screen.name === 'log' && (
+        <>
+          <CaptainsLog
+            tab={screen.tab}
+            onTabChange={(tab) => setScreen({ name: 'log', tab })}
+            config={options}
+            playerId={player.playerId}
+            playerName={player.playerName}
+            onBack={toMenu}
+          />
+          <NetworkDevPanel />
+        </>
+      )}
+      {screen.name === 'game' && (
+        <GameScreen key={screen.key} options={options} onSaveOptions={updateOptions} onMatchEnd={handleMatchEnd} onExit={toMenu} />
+      )}
+      {screen.name === 'result' && lastResult && (
+        <Dialog labelledBy="result-title" className="max-w-[440px] px-4 py-4" testId="result-dialog">
+          <ResultPanel record={lastResult} onPlayAgain={play} onMainMenu={toMenu} />
+        </Dialog>
+      )}
+      {optionsOpen && <OptionsDialog options={options} onSave={updateOptions} onClose={() => setOptionsOpen(false)} />}
+    </>
   );
 }

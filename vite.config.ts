@@ -1,8 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
+import path from 'node:path';
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -10,5 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  base: './',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: { pixi: ['pixi.js'], react: ['react', 'react-dom'], query: ['@tanstack/react-query', 'axios'] },
+      },
+    },
+  },
+  server: { port: 5173, strictPort: true },
+  preview: { port: 4173, strictPort: true },
 });
