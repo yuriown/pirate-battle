@@ -17,7 +17,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : 3,
   reporter: [['html', { outputFolder: 'playwright-report', open: 'never' }], ['list']],
-  snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{testFilePath}/{arg}{ext}',
+  // Baselines per OS: fonts and rasterisation differ between Windows and Linux (CI).
+  snapshotPathTemplate: '{testDir}/__screenshots__/{platform}/{projectName}/{testFilePath}/{arg}{ext}',
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',

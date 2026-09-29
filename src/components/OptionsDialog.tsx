@@ -49,13 +49,15 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
   };
 
   return (
-    <Dialog labelledBy="options-title" onEscape={onClose} className="max-w-[440px] px-4 py-3" testId="options-dialog">
-      <form onSubmit={save} noValidate className="flex flex-col items-center gap-4 text-center">
-        <h2 id="options-title" className="pb-heading text-3xl">
+    <Dialog labelledBy="options-title" onEscape={onClose} className="max-w-[440px] px-4 py-3 short:max-w-[760px] short:py-1" testId="options-dialog">
+      {/* Two columns on short screens (phones in landscape) so the whole form fits without scrolling. */}
+      <form onSubmit={save} noValidate className="flex flex-col items-center gap-4 text-center short:grid short:grid-cols-2 short:items-start short:gap-x-6 short:gap-y-1">
+        <h2 id="options-title" className="pb-heading text-3xl short:col-span-2 short:text-xl">
           Options
         </h2>
-        {inMatch && <p className="text-xs text-amber-50/80">Changes apply to the next match.</p>}
+        {inMatch && <p className="text-xs text-amber-50/80 short:col-span-2">Changes apply to the next match.</p>}
 
+        <div className="flex flex-col items-center gap-4 short:gap-1.5">
         <Stepper
           label="Game session time"
           unit="s"
@@ -82,7 +84,9 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
           max={s.max}
           step={s.step}
         />
+        </div>
 
+        <div className="flex flex-col items-center gap-4 short:gap-1.5">
         <div className="flex flex-col items-center gap-1">
           <label htmlFor={nameId} className="text-sm font-bold">
             Captain name
@@ -98,7 +102,7 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
             aria-invalid={nameError ? true : undefined}
             aria-describedby={`${nameId}-hint${nameError ? ` ${nameId}-error` : ''}`}
           />
-          <p id={`${nameId}-hint`} className="text-xs text-amber-50/70">
+          <p id={`${nameId}-hint`} className="text-xs text-amber-50/70 short:sr-only">
             Shown in the ranking (2–16 characters)
           </p>
           {nameError && (
@@ -113,17 +117,18 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
           Mute sound
         </label>
 
-        <p role="status" className="min-h-[1.25rem] text-sm font-bold text-emerald-300">
+        <p role="status" className="min-h-[1.25rem] text-sm font-bold text-emerald-300 short:min-h-0">
           {saved ? 'Options saved.' : ''}
         </p>
 
-        <div className="flex w-full flex-col items-center gap-3">
-          <button type="submit" className="pb-btn w-60">
+        <div className="flex w-full flex-col items-center gap-3 short:flex-row short:justify-center short:gap-2">
+          <button type="submit" className="pb-btn w-60 short:w-36">
             Save
           </button>
-          <button type="button" className="pb-btn w-60" onClick={onClose}>
+          <button type="button" className="pb-btn w-60 short:w-36" onClick={onClose}>
             {inMatch ? 'Back' : 'Main Menu'}
           </button>
+        </div>
         </div>
       </form>
     </Dialog>
@@ -147,7 +152,7 @@ interface StepperProps {
 function Stepper({ label, unit, value, onChange, onMinus, onPlus, hint, error, min, max, step }: StepperProps) {
   const id = useId();
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2 short:gap-1">
       <label htmlFor={id} className="text-sm font-bold">
         {label}
       </label>
@@ -175,7 +180,7 @@ function Stepper({ label, unit, value, onChange, onMinus, onPlus, hint, error, m
           <img src={icon.plus} alt="" />
         </button>
       </div>
-      <p id={`${id}-hint`} className="text-xs text-amber-50/70">
+      <p id={`${id}-hint`} className="text-xs text-amber-50/70 short:sr-only">
         {hint}
       </p>
       {error && (
