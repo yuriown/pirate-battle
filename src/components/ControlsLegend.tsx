@@ -2,18 +2,18 @@ const ROWS: [string, string][] = [
   ['W / ↑', 'Sail forward'],
   ['A D / ← →', 'Turn left / right'],
   ['Space / J', 'Front cannon'],
-  ['Q / K', 'Port broadside (left)'],
-  ['E / L', 'Starboard broadside (right)'],
+  ['Q / K', 'Port broadside'],
+  ['E / L', 'Starboard broadside'],
   ['Esc / P', 'Pause / resume'],
 ];
 
-export function ControlsLegend({ compact = false }: { compact?: boolean }) {
+export function ControlsLegend() {
   return (
-    <section aria-labelledby="controls-title" className={compact ? 'text-xs' : 'text-sm'}>
-      <h2 id="controls-title" className="pb-caption mb-2">
+    <section aria-labelledby="controls-title" className="text-xs">
+      <h2 id="controls-title" className="pb-caption mb-2 short:mb-1">
         Controls
       </h2>
-      <dl className={`grid gap-x-3 gap-y-1 ${compact ? 'grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto_1fr]' : 'grid-cols-[auto_1fr]'}`}>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr_auto_1fr] short:grid-cols-[auto_1fr] short:gap-x-2 short:gap-y-0.5 short:whitespace-nowrap">
         {ROWS.map(([keys, action]) => (
           <div key={action} className="contents">
             <dt>
@@ -23,7 +23,7 @@ export function ControlsLegend({ compact = false }: { compact?: boolean }) {
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-amber-50/70">
+      <p className="mt-2 text-amber-50/70 short:hidden">
         Touch: hold the on-screen buttons — steer on the left, fire on the right. Hold fire to keep shooting.
       </p>
     </section>

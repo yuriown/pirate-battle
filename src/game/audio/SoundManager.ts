@@ -32,6 +32,9 @@ class SoundManager {
   private buffers = new Map<SoundName, AudioBuffer>();
   private loading: Promise<void> | null = null;
   private loops = new Map<LoopName, { src: AudioBufferSourceNode; gain: GainNode }>();
+  /** Loops requested by the current match; a late-decoded buffer only starts if still wanted. */
+  private wantedLoops = new Set<LoopName>();
+  private paused = false;
   private variantIndex = 0;
   muted = readMuted();
 
@@ -86,14 +89,18 @@ class SoundManager {
     const ctx = this.ctx;
     const buffer = this.buffers.get(name);
     if (!ctx || !this.master || this.loops.has(name)) return;
+    this.wantedLoops.add(name);
     if (!buffer) {
-      // Buffers may still be decoding right after the first gesture.
-      void this.preload().then(() => this.loops.has(name) || this.startLoop(name));
+      // Buffers may still be decoding right after the first gesture. If the match is left before
+      // they finish, stopLoops() clears the wish and nothing starts in the menu.
+      void this.preload().then(() => {
+        if (this.wantedLoops.has(name) && this.buffers.has(name)) this.startLoop(name);
+      });
       return;
     }
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
-    gain.gain.value = SOUNDS[name];
+    gain.gain.value = this.paused ? 0 : SOUNDS[name];
     src.buffer = buffer;
     src.loop = true;
     src.connect(gain).connect(this.master);
@@ -103,10 +110,12 @@ class SoundManager {
 
   setLoopVolume(name: LoopName, volume: number): void {
     const loop = this.loops.get(name);
-    if (loop && this.ctx) loop.gain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.1);
+    if (loop && this.ctx && !this.paused) loop.gain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.1);
   }
 
   stopLoops(): void {
+    this.wantedLoops.clear();
+    this.paused = false;
     this.loops.forEach(({ src }) => {
       try {
         src.stop();
@@ -118,10 +127,18 @@ class SoundManager {
     this.loops.clear();
   }
 
-  /** Suspends/resumes every sound (used by pause so loops freeze with the simulation). */
-  setSuspended(suspended: boolean): void {
-    if (!this.ctx) return;
-    void (suspended ? this.ctx.suspend() : this.ctx.resume()).catch(() => undefined);
+  /**
+   * Pause silences the loops (fading, not suspending the context, so the pause/resume cues
+   * themselves are still audible). Loop volumes come back on resume.
+   */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.loops.forEach(({ gain }, name) => {
+      const target = paused ? 0 : name === 'ship_sailing_loop' ? 0 : SOUNDS[name];
+      gain.gain.setTargetAtTime(target, ctx.currentTime, 0.05);
+    });
   }
 
   setMuted(muted: boolean): void {

@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, Sprite, Texture, TilingSprite, type Renderer as PixiRenderer } from 'pixi.js';
 import { ARENA, ISLAND_TILES, PROP_TILES, TILE } from '../sim/arena';
+import { wrapAngle } from '../sim/math';
 import type { Ship, ShipKind, SimEvent } from '../sim/types';
 import type { World } from '../sim/World';
 import type { GameTextures } from './assets';
@@ -10,7 +11,7 @@ const SHIP_COLOR: Record<ShipKind, number> = { player: 5, chaser: 3, shooter: 2 
 const shipTextureName = (kind: ShipKind, stage: number) => `ship_${SHIP_COLOR[kind] + 6 * stage}`;
 
 /** 0 = intact, 1 = damaged, 2 = heavily damaged, 3 = wreck. */
-export function damageStage(health: number, maxHealth: number): number {
+function damageStage(health: number, maxHealth: number): number {
   if (health <= 0) return 3;
   const ratio = health / maxHealth;
   return ratio > 2 / 3 ? 0 : ratio > 1 / 3 ? 1 : 2;
@@ -29,6 +30,10 @@ interface ShipView {
 }
 
 const BAR_SCALE = 0.42;
+/** Keeps the health bar of a ship hugging the top edge inside the arena. */
+const BAR_MIN_Y = 12;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /**
  * Draws the world with PixiJS. Reads simulation state, never mutates it. Owns every display
@@ -43,6 +48,8 @@ export class Renderer {
   private readonly shipViews = new Map<number, ShipView>();
   private readonly ballSprites: Sprite[] = [];
   private readonly fillCache = new Map<string, Texture>();
+  private readonly frame: Graphics;
+  private playerId = -1;
   private time = 0;
 
   constructor(
@@ -57,10 +64,10 @@ export class Renderer {
     const props = new Container();
     for (const t of PROP_TILES) props.addChild(this.tileSprite(t.tile, t.x, t.y));
 
-    const frame = new Graphics().rect(0, 0, ARENA.width, ARENA.height).stroke({ width: 8, color: 0x0b2a3d, alpha: 0.9 });
+    this.frame = new Graphics().rect(0, 0, ARENA.width, ARENA.height).stroke({ width: 8, color: 0x0b2a3d, alpha: 0.9 });
 
     this.effects = new EffectsLayer(pixi, tex);
-    this.root.addChild(water, this.effects.below, islands, props, this.ships, this.projectiles, this.effects.above, this.bars, frame);
+    this.root.addChild(water, this.effects.below, islands, props, this.ships, this.projectiles, this.effects.above, this.bars, this.frame);
     this.root.label = 'arena';
   }
 
@@ -83,6 +90,12 @@ export class Renderer {
           if (view) view.flash = 0.18;
           break;
         }
+        case 'rammed': {
+          // The ram is the biggest single hit the player takes: flash the hull like a cannon hit.
+          const view = this.shipViews.get(this.playerId);
+          if (view) view.flash = 0.3;
+          break;
+        }
         case 'projectile-expired':
           if (ev.reason === 'island') this.effects.sandPuff(ev.x, ev.y);
           else if (ev.reason === 'range') this.effects.splash(ev.x, ev.y);
@@ -101,15 +114,20 @@ export class Renderer {
     }
   }
 
-  /** Synchronises display objects with the world. `dt` is simulated time consumed this frame. */
-  sync(world: World, dt: number): void {
+  /**
+   * Synchronises display objects with the world. `dt` is simulated time consumed this frame;
+   * `alpha` (0..1) interpolates between the previous and current simulation step so motion stays
+   * smooth on displays faster than the 60 Hz simulation.
+   */
+  sync(world: World, dt: number, alpha: number): void {
     this.time += dt;
+    this.playerId = world.player.id;
     const alive = new Set<number>();
     const ships: Ship[] = world.player.alive ? [world.player, ...world.enemies] : world.enemies;
     for (const s of ships) {
       if (!s.alive) continue;
       alive.add(s.id);
-      this.syncShip(s, dt);
+      this.syncShip(s, dt, alpha);
     }
     for (const id of [...this.shipViews.keys()]) if (!alive.has(id)) this.removeShipView(id);
 
@@ -125,7 +143,7 @@ export class Renderer {
       const b = balls[i];
       sprite.visible = !!b;
       if (!b) continue;
-      sprite.position.set(b.x, b.y);
+      sprite.position.set(lerp(b.prevX, b.x, alpha), lerp(b.prevY, b.y, alpha));
       sprite.tint = b.owner === 'enemy' ? 0xffc2a8 : 0xffffff;
       sprite.scale.set(b.owner === 'enemy' ? 1.1 : 1.25);
     }
@@ -133,7 +151,12 @@ export class Renderer {
     this.effects.update(dt);
   }
 
-  private syncShip(s: Ship, dt: number): void {
+  /** True when no transient effect is still animating. */
+  get idle(): boolean {
+    return this.effects.count === 0;
+  }
+
+  private syncShip(s: Ship, dt: number, alpha: number): void {
     let view = this.shipViews.get(s.id);
     if (!view) view = this.createShipView(s);
     const stage = damageStage(s.health, s.maxHealth);
@@ -143,9 +166,11 @@ export class Renderer {
       view.fire.visible = stage >= 1;
       view.fire.scale.set(stage === 2 ? 1 : 0.7);
     }
-    view.root.position.set(s.x, s.y);
+    const x = lerp(s.prevX, s.x, alpha);
+    const y = lerp(s.prevY, s.y, alpha);
+    view.root.position.set(x, y);
     // Sprites face +y; simulation heading 0 faces +x.
-    view.root.rotation = s.rotation - Math.PI / 2;
+    view.root.rotation = s.prevRotation + wrapAngle(s.rotation - s.prevRotation) * alpha - Math.PI / 2;
 
     if (view.fire.visible) {
       const frame = Math.floor(this.time * 8) % 2;
@@ -158,7 +183,7 @@ export class Renderer {
       view.shownHealth = s.health;
       view.barFill.texture = this.healthFill(s.kind === 'player' ? 'enemy_health_fill_green' : 'enemy_health_fill_red', s.health / s.maxHealth);
     }
-    view.bar.position.set(s.x, s.y - 74);
+    view.bar.position.set(x, Math.max(BAR_MIN_Y, y - 74));
 
     view.wakeTimer -= dt;
     if (s.speed > 40 && view.wakeTimer <= 0) {
@@ -205,17 +230,21 @@ export class Renderer {
    * are cached per 2% step so bars never allocate per frame.
    */
   private healthFill(name: string, ratio: number): Texture {
-    const pct = Math.max(0, Math.min(50, Math.round(ratio * 50)));
+    // Rounded up: a ship that is still alive always shows at least a sliver of health.
+    const pct = ratio <= 0 ? 0 : Math.min(50, Math.max(1, Math.ceil(ratio * 50)));
     const key = `${name}:${pct}`;
     let t = this.fillCache.get(key);
     if (t) return t;
-    const base = this.tex.ui[name];
-    const fill = this.tex.uiLayout[name]?.fill_rect ?? { x: 24, y: 12, w: 112, h: 15 };
-    const logicalW = pct === 0 ? 0 : fill.x + (fill.w * pct) / 50;
-    const f = base.frame;
-    const k = f.width / 160;
-    t = new Texture({ source: base.source, frame: new Rectangle(f.x, f.y, Math.max(1, logicalW * k), f.height) });
-    if (pct === 0) t = Texture.EMPTY;
+    if (pct === 0) {
+      t = Texture.EMPTY;
+    } else {
+      const base = this.tex.ui[name];
+      const fill = this.tex.uiLayout[name]?.fill_rect ?? { x: 24, y: 12, w: 112, h: 15 };
+      const logicalW = fill.x + (fill.w * pct) / 50;
+      const f = base.frame;
+      const k = f.width / 160;
+      t = new Texture({ source: base.source, frame: new Rectangle(f.x, f.y, logicalW * k, f.height) });
+    }
     this.fillCache.set(key, t);
     return t;
   }

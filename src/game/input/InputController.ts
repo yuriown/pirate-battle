@@ -17,7 +17,7 @@ const KEY_BINDINGS: Record<string, InputAction> = {
   KeyL: 'fireRight',
 };
 
-export const PAUSE_KEYS = new Set(['Escape', 'KeyP']);
+const PAUSE_KEYS = new Set(['Escape', 'KeyP']);
 
 /**
  * Merges keyboard and touch into one held-state snapshot sampled by the simulation each step.
@@ -32,6 +32,8 @@ export class InputController {
   private target: Window | null = null;
   private onPause: (() => void) | null = null;
   private enabled = true;
+  /** While true, Esc/P do nothing (e.g. a menu dialog is open over the paused match). */
+  pauseKeysLocked = false;
 
   attach(target: Window, onPause: () => void): void {
     if (this.target) return;
@@ -92,7 +94,7 @@ export class InputController {
   private handleKeyDown = (e: KeyboardEvent): void => {
     if (isEditable(e.target)) return;
     if (PAUSE_KEYS.has(e.code)) {
-      if (!e.repeat) this.onPause?.();
+      if (!e.repeat && !this.pauseKeysLocked) this.onPause?.();
       e.preventDefault();
       return;
     }
@@ -100,6 +102,8 @@ export class InputController {
     // When disabled (pause overlay open) Space/Enter must keep activating the focused button.
     if (!action || !this.enabled) return;
     e.preventDefault();
+    // OS auto-repeat of a key held through a pause must not re-activate it after resuming.
+    if (e.repeat && !this.keys.has(action)) return;
     this.keys.add(action);
     if (!e.repeat) this.pulses.add(action);
   };

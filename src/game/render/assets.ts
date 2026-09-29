@@ -75,10 +75,6 @@ export function loadGameTextures(onProgress?: LoadProgress): Promise<GameTexture
   return current;
 }
 
-export function texturesReady(): boolean {
-  return loaded !== null;
-}
-
 async function doLoad(onProgress?: LoadProgress): Promise<GameTextures> {
   const retina = (globalThis.devicePixelRatio ?? 1) >= 1.5;
   const specs = sheetSpecs(retina);
@@ -87,7 +83,7 @@ async function doLoad(onProgress?: LoadProgress): Promise<GameTextures> {
   const tick = () => onProgress?.(++done / total);
   onProgress?.(0);
 
-  const sheets = await Promise.all(
+  const settled = await Promise.allSettled(
     specs.map(async (spec) => {
       const data = await fetchJson<SpritesheetData & { frames: Record<string, { ui?: { layout?: unknown } }> }>(BASE + spec.json);
       tick();
@@ -99,6 +95,13 @@ async function doLoad(onProgress?: LoadProgress): Promise<GameTextures> {
       return { spec, sheet, data };
     }),
   );
+  const failure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  const sheets = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+  if (failure) {
+    // Release what did load; a retry fetches everything again.
+    sheets.forEach(({ sheet }) => sheet.destroy(true));
+    throw failure.reason;
+  }
 
   const water = await fetchTexture(BASE + (retina ? 'ui/water@2x.png' : 'ui/water.png'), retina ? 2 : 1, 'repeat');
   tick();

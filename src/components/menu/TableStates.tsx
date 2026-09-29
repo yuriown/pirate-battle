@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-const ICONS = '/assets/ui/1x/controls';
+import { icon } from '../ui/icons';
 
 export function LoadingState({ label }: { label: string }) {
   return (
@@ -22,7 +22,13 @@ export function ErrorState({ message, onRetry, retrying }: { message: string; on
   return (
     <div className="pb-error" role="alert">
       <p>{message}</p>
-      <button type="button" className="pb-btn pb-btn--secondary" onClick={onRetry} disabled={retrying}>
+      {/* aria-disabled (not disabled) so keyboard focus stays on the button while retrying. */}
+      <button
+        type="button"
+        className="pb-btn pb-btn--secondary"
+        onClick={() => !retrying && onRetry()}
+        aria-disabled={retrying}
+      >
         {retrying ? 'Retrying…' : 'Retry'}
       </button>
     </div>
@@ -56,7 +62,7 @@ export function Pager({ page, totalPages, onChange, label }: PagerProps) {
         disabled={page <= 1}
         onClick={() => onChange(page - 1)}
       >
-        <img src={`${ICONS}/icon_turn_left.png`} alt="" />
+        <img src={icon.turnLeft} alt="" />
       </button>
       <span className="text-amber-50" aria-live="polite">
         Page {page} of {totalPages}
@@ -68,7 +74,7 @@ export function Pager({ page, totalPages, onChange, label }: PagerProps) {
         disabled={page >= totalPages}
         onClick={() => onChange(page + 1)}
       >
-        <img src={`${ICONS}/icon_turn_right.png`} alt="" />
+        <img src={icon.turnRight} alt="" />
       </button>
     </nav>
   );

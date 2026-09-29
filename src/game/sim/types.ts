@@ -29,6 +29,10 @@ export interface Ship {
   y: number;
   /** Heading in radians; 0 points to +x, PI/2 to +y (screen down). */
   rotation: number;
+  /** Pose at the start of the current step, for render interpolation. */
+  prevX: number;
+  prevY: number;
+  prevRotation: number;
   speed: number;
   health: number;
   maxHealth: number;
@@ -46,9 +50,10 @@ export interface Ship {
 export interface Projectile {
   id: number;
   owner: 'player' | 'enemy';
-  ownerId: number;
   x: number;
   y: number;
+  prevX: number;
+  prevY: number;
   vx: number;
   vy: number;
   damage: number;

@@ -67,18 +67,34 @@ export class World {
     // Snap to the duration so float accumulation (60 × 1/60 ≠ 1) cannot postpone the end by a step.
     this.time = duration - (this.time + dt) < 1e-6 ? duration : this.time + dt;
     this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
+    this.storePreviousPoses();
 
     this.updatePlayer(dt, input);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
+    // Death wins over time-up when both happen in the same step.
     if (this.status !== 'running') return;
     this.checkRams();
     if (this.status !== 'running') return;
     this.separateShips();
     this.enemies = this.enemies.filter((e) => e.alive);
+    if (this.time >= duration) {
+      this.end('time_up');
+      return;
+    }
     this.updateSpawner(dt);
+  }
 
-    if (this.time >= this.config.sessionDurationSec) this.end('time_up');
+  private storePreviousPoses(): void {
+    for (const s of [this.player, ...this.enemies]) {
+      s.prevX = s.x;
+      s.prevY = s.y;
+      s.prevRotation = s.rotation;
+    }
+    for (const pr of this.projectiles) {
+      pr.prevX = pr.x;
+      pr.prevY = pr.y;
+    }
   }
 
   // ---------------------------------------------------------------- player
@@ -106,7 +122,7 @@ export class World {
     const bow = p.halfLength + p.radius + 4;
     const x = p.x + Math.cos(p.rotation) * bow;
     const y = p.y + Math.sin(p.rotation) * bow;
-    this.spawnProjectile('player', p.id, x, y, p.rotation, w);
+    this.spawnProjectile('player', x, y, p.rotation, w);
     this.counters.shots.front++;
     this.events.push({ type: 'shot', weapon: 'front', x, y, angle: p.rotation });
   }
@@ -122,7 +138,7 @@ export class World {
     for (const k of [-1, 0, 1]) {
       const x = p.x + fx * k * w.spacing + sx * out;
       const y = p.y + fy * k * w.spacing + sy * out;
-      this.spawnProjectile('player', p.id, x, y, angle, w);
+      this.spawnProjectile('player', x, y, angle, w);
     }
     this.counters.shots[side]++;
     this.events.push({ type: 'shot', weapon: side, x: p.x + sx * out, y: p.y + sy * out, angle });
@@ -213,9 +229,10 @@ export class World {
     const bow = e.halfLength + e.radius + 4;
     const x = e.x + Math.cos(e.rotation) * bow;
     const y = e.y + Math.sin(e.rotation) * bow;
-    if (!hasLineOfSight(x, y, this.player.x, this.player.y)) return;
+    // Same radius as the cannonball, so a shot that would clip an island corner is not fired.
+    if (!hasLineOfSight(x, y, this.player.x, this.player.y, this.config.projectileRadius)) return;
     e.cooldowns.front = cfg.weapon.cooldownSec;
-    this.spawnProjectile('enemy', e.id, x, y, aim, cfg.weapon);
+    this.spawnProjectile('enemy', x, y, aim, cfg.weapon);
     this.counters.shots.enemy++;
     this.events.push({ type: 'shot', weapon: 'enemy', x, y, angle: aim });
   }
@@ -234,22 +251,33 @@ export class World {
     }
   }
 
-  /** Keeps ships from overlapping each other (no damage; chaser contact is handled by checkRams). */
+  /**
+   * Keeps hulls from overlapping each other (no damage; chaser contact is handled by checkRams).
+   * Uses the same three capsule samples as the island collision, so long hulls separate too.
+   */
   private separateShips(): void {
     const ships = [this.player, ...this.enemies.filter((e) => e.alive)];
     for (let i = 0; i < ships.length; i++) {
       for (let j = i + 1; j < ships.length; j++) {
         const a = ships[i], b = ships[j];
-        const minD = a.radius + b.radius + 6;
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const d = Math.hypot(dx, dy);
-        if (d >= minD || d < 1e-6) continue;
-        const overlap = minD - d;
-        const nx = dx / d, ny = dy / d;
-        // The player is never shoved by enemies; enemies share the correction.
-        const share = a.kind === 'player' ? 0 : 0.5;
-        a.x -= nx * overlap * share; a.y -= ny * overlap * share;
-        b.x += nx * overlap * (1 - share); b.y += ny * overlap * (1 - share);
+        // A chaser touching the player is a ram (checkRams), never something to push apart.
+        if (a.kind === 'player' && b.kind === 'chaser') continue;
+        if (dist(a.x, a.y, b.x, b.y) > (a.halfLength + a.radius) + (b.halfLength + b.radius)) continue;
+        const minD = a.radius + b.radius + 4;
+        const as = capsuleSamples(a), bs = capsuleSamples(b);
+        for (const [ax, ay] of as) {
+          for (const [bx, by] of bs) {
+            const dx = bx - ax, dy = by - ay;
+            const d = Math.hypot(dx, dy);
+            if (d >= minD || d < 1e-6) continue;
+            const overlap = minD - d;
+            const nx = dx / d, ny = dy / d;
+            // The player is never shoved by enemies; enemies share the correction.
+            const share = a.kind === 'player' ? 0 : 0.5;
+            a.x -= nx * overlap * share; a.y -= ny * overlap * share;
+            b.x += nx * overlap * (1 - share); b.y += ny * overlap * (1 - share);
+          }
+        }
         this.resolveStatic(a);
         this.resolveStatic(b);
       }
@@ -258,13 +286,14 @@ export class World {
 
   // ---------------------------------------------------------------- projectiles
 
-  private spawnProjectile(owner: 'player' | 'enemy', ownerId: number, x: number, y: number, angle: number, w: WeaponConfig): void {
+  private spawnProjectile(owner: 'player' | 'enemy', x: number, y: number, angle: number, w: WeaponConfig): void {
     this.projectiles.push({
       id: this.nextId++,
       owner,
-      ownerId,
       x,
       y,
+      prevX: x,
+      prevY: y,
       vx: Math.cos(angle) * w.projectileSpeed,
       vy: Math.sin(angle) * w.projectileSpeed,
       damage: w.damage,
@@ -348,7 +377,8 @@ export class World {
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
     if (this.enemies.length >= cfg.maxAlive) {
-      this.spawnTimer += cfg.intervalSec;
+      // Arena full: the due spawn happens as soon as a slot frees up.
+      this.spawnTimer = 0.25;
       return;
     }
     const kind: EnemyKind = this.spawnCount < cfg.openingSequence.length
@@ -444,6 +474,9 @@ export class World {
       x,
       y,
       rotation,
+      prevX: x,
+      prevY: y,
+      prevRotation: rotation,
       speed: 0,
       health: stats.maxHealth,
       maxHealth: stats.maxHealth,
@@ -487,6 +520,12 @@ function tickCooldowns(s: Ship, dt: number): void {
   s.cooldowns.front = Math.max(0, s.cooldowns.front - dt);
   s.cooldowns.left = Math.max(0, s.cooldowns.left - dt);
   s.cooldowns.right = Math.max(0, s.cooldowns.right - dt);
+}
+
+function capsuleSamples(s: Ship): [number, number][] {
+  const cx = Math.cos(s.rotation) * s.halfLength;
+  const cy = Math.sin(s.rotation) * s.halfLength;
+  return [[s.x - cx, s.y - cy], [s.x, s.y], [s.x + cx, s.y + cy]];
 }
 
 function capsuleEnds(s: Ship): [number, number, number, number] {

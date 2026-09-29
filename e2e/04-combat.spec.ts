@@ -62,7 +62,7 @@ test.describe('4. Front and broadside fire, damage, cooldown and scoring', () =>
     expect(s.enemies.find((e) => e.id === id)).toBeUndefined();
     expect(s.counters.kills).toBe(1);
     expect(s.score).toBe(1);
-    await expect(page.getByTestId('hud-score')).toHaveAccessibleName('Score 1');
+    await expect(page.getByTestId('hud-score')).toHaveText('Score 1');
 
     // Destroyed ships no longer collide or score: keep firing through the wreck site.
     s = await hold(page, [' '], 1500);

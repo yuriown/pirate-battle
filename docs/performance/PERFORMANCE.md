@@ -20,7 +20,7 @@ All numbers come from one run of `npm run profile` (`scripts/profile.mjs`) on 20
 - **Input.** Real keyboard events via `page.keyboard`. W (sail), Space (bow cannon), Q and E (broadsides) are held throughout. An autopilot reads enemy positions through the `?e2e` test API about every 40 ms and presses A or D to aim the bow at the nearest threat. It does not change the simulation.
 - **Three minutes of combat.** The autopilot does not survive the whole 180 s match. When the player is destroyed, the script presses **Play Again** (the in-place restart path) and keeps measuring until cumulative active play time reaches 180 s. Each match is recorded as a segment. Frames from the short end-of-match animations and restarts are included.
 - **Frame time.** Two independent sources:
-  1. The Pixi ticker `deltaMS` for every frame (`frameStats()`). The script collects and resets it every 30 s so the 20,000-sample cap inside the game is never hit.
+  1. The Pixi ticker `deltaMS` for every frame (`frameStats()`). The script collects and resets it every 30 s so the in-game sample cap (20,000 at the time of this run, 30,000 since; samples are only recorded with `?e2e`) is never hit.
   2. A `requestAnimationFrame` probe injected into the page, recording `performance.now()` deltas.
 
   Mean FPS = 1000 / mean frame time. Percentiles use the nearest-rank method.

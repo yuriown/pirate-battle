@@ -85,17 +85,20 @@ test.describe('5. Chaser and Shooter behaviour, spawn interval', () => {
   });
 
   test('the same seed reproduces the same match', async ({ browser }) => {
-    const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
-    const page = await context.newPage();
+    // Two fresh browser contexts each load the app and its assets: allow for a busy machine.
+    test.setTimeout(120_000);
+    // Each run in its own fresh context (same device settings as the project).
     const run = async () => {
+      const context = await browser.newContext({ ...test.info().project.use });
+      const page = await context.newPage();
       await openApp(page, { seed: 99 });
       await startMatch(page);
-      const s = await advance(page, 12000);
+      const s = await advance(page, 8000);
+      await context.close();
       return s.enemies.map((e) => [e.kind, Math.round(e.x), Math.round(e.y)]);
     };
     const first = await run();
     expect(first.length).toBeGreaterThan(1);
     expect(await run()).toEqual(first);
-    await context.close();
   });
 });

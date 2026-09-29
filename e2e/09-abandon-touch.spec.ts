@@ -43,7 +43,9 @@ test.describe('9. Abandoning, repeated navigation and touch controls', () => {
     expect(errors).toEqual([]);
   });
 
-  test('touch buttons steer and fire simultaneously (multi-touch)', async ({ page }) => {
+  test('touch buttons steer and fire simultaneously (multi-touch)', async ({ page, isMobile }) => {
+    // Touch controls are only rendered on touch (coarse pointer) devices.
+    test.skip(!isMobile, 'touch controls are a mobile feature');
     await openApp(page, { spawns: false });
     await startMatch(page);
     const controls = page.getByTestId('touch-controls');

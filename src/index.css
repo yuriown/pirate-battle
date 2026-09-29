@@ -39,6 +39,11 @@ body {
   border-radius: 12px;
 }
 
+/* Headings that receive focus on screen changes (tabIndex -1) are not interactive: no ring. */
+.pb-focus-target:focus {
+  outline: none;
+}
+
 @layer components {
   .pb-backdrop {
     @apply fixed inset-0 flex items-center justify-center p-2 sm:p-6 overflow-y-auto;
@@ -166,25 +171,29 @@ body {
     border-collapse: separate;
     border-spacing: 0 6px;
   }
-  .pb-table th {
+  .pb-table thead th {
     @apply text-[11px] font-bold uppercase tracking-[0.14em] px-3 pb-1;
     color: #c9b995;
   }
-  .pb-table td {
-    @apply px-3 py-2.5 font-bold;
+  /* Body cells, including the row-header <th scope="row">, share one look. */
+  .pb-table tbody td,
+  .pb-table tbody th {
+    @apply px-3 py-2 font-bold text-left;
     background: rgba(12, 22, 36, 0.72);
     font-variant-numeric: tabular-nums;
   }
-  .pb-table td:first-child {
+  .pb-table tbody > tr > :first-child {
     border-radius: 8px 0 0 8px;
   }
-  .pb-table td:last-child {
+  .pb-table tbody > tr > :last-child {
     border-radius: 0 8px 8px 0;
   }
-  .pb-table-row {
-    height: 44px;
+  .pb-table caption {
+    @apply text-xs font-bold uppercase tracking-[0.14em] pb-1;
+    color: #e9d9b8;
   }
-  .pb-row-highlight td {
+  .pb-row-highlight td,
+  .pb-row-highlight th {
     background: rgba(125, 104, 58, 0.72);
   }
   .pb-badge {
@@ -210,6 +219,18 @@ body {
   }
   .pb-input[aria-invalid='true'] {
     border-color: #f87171;
+  }
+}
+
+/* Touch controls only where fingers are the main input; keyboard hints elsewhere. */
+@media (pointer: fine) {
+  .touch-only {
+    display: none !important;
+  }
+}
+@media (pointer: coarse) {
+  .desktop-only {
+    display: none !important;
   }
 }
 

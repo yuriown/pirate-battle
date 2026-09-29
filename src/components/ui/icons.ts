@@ -16,6 +16,8 @@ export const icon = {
   turnLeft: `${base}/controls/icon_turn_left.png`,
   turnRight: `${base}/controls/icon_turn_right.png`,
   heart: `${base}/hud/icon_heart.png`,
+  healthFrame: `${base}/hud/health_frame.png`,
+  healthFill: (color: 'green' | 'amber' | 'red') => `${base}/hud/health_fill_${color}.png`,
   score: `${base}/hud/icon_score.png`,
   time: `${base}/hud/icon_time.png`,
   title: `${base}/menu/title_pirate_battle.png`,

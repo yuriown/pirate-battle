@@ -14,10 +14,6 @@ export class Rng {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  range(min: number, max: number): number {
-    return min + (max - min) * this.next();
-  }
-
   int(maxExclusive: number): number {
     return Math.floor(this.next() * maxExclusive);
   }

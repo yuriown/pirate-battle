@@ -7,7 +7,7 @@ const params = new URLSearchParams(globalThis.location?.search ?? '');
 
 export const testFlags = {
   enabled: params.has('e2e'),
-  seed: params.has('seed') ? Number(params.get('seed')) >>> 0 : undefined,
+  seed: params.has('e2e') && params.has('seed') ? Number(params.get('seed')) >>> 0 : undefined,
   manualClock: params.has('e2e') && params.get('clock') === 'manual',
   noSpawns: params.has('e2e') && params.get('spawns') === 'off',
 };

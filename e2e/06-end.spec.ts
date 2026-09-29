@@ -16,7 +16,7 @@ test.describe('6. End by time and by death, frozen simulation, clean restart', (
     expect(end.timeSec).toBe(60);
     await expect(page.getByRole('dialog', { name: 'Battle Complete' })).toBeVisible();
     await expect(page.getByTestId('result-summary')).toContainText('01:00');
-    await expect(page.getByTestId('result-summary')).toContainText('Time up');
+    await expect(page.getByTestId('result-summary')).toContainText('TIME UP');
 
     // No movement, attacks, spawns, damage or score after the end.
     const after = await hold(page, ['w', ' ', 'q'], 3000);
@@ -42,7 +42,7 @@ test.describe('6. End by time and by death, frozen simulation, clean restart', (
     expect(end.player.health).toBe(0);
     expect(end.score).toBe(0);
     await expect(page.getByRole('dialog', { name: 'Ship Destroyed' })).toBeVisible();
-    await expect(page.getByTestId('result-summary')).toContainText('Defeated');
+    await expect(page.getByTestId('result-summary')).toContainText('DEFEATED');
 
     await page.getByRole('button', { name: 'Play Again' }).click();
     const fresh = await state(page);

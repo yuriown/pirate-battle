@@ -55,18 +55,23 @@ sees coarse snapshots.**
 ## Simulation loop
 
 - `World.step(dt, input)` advances the match by a fixed `dt = 1/60 s`. `GameSession` accumulates the
-  real frame delta (clamped to 0.25 s per frame, at most 8 steps per frame, extra backlog dropped) and
-  runs as many fixed steps as fit. Movement, cooldowns, projectile lifetime/range, spawn timers and the
+  real frame delta (clamped to 0.25 s per frame, at most 8 steps per frame; beyond that the backlog is
+  capped at one step, so below ~7.5 fps game time runs slower than real time) and runs as many fixed
+  steps as fit. Rendering interpolates between the previous and the current step
+  (`alpha = accumulator / step`), so motion stays smooth on 120/144 Hz displays. Movement, cooldowns, projectile lifetime/range, spawn timers and the
   match clock all use simulated time, so behaviour is independent of the frame rate (a 120 Hz display
   and a 30 Hz one play identically).
 - The match clock is the sum of simulated steps and snaps to the duration to avoid floating-point drift.
 - **Pause** (manual, window blur, tab hidden, portrait orientation) disables input (held keys are
-  dropped), zeroes the accumulator, suspends audio and **stops the Pixi ticker**. Nothing advances,
+  dropped, OS key auto-repeat is ignored until a fresh press), zeroes the accumulator, fades the audio
+  loops out and **stops the Pixi ticker**. Nothing advances,
   including cooldowns and effects. Resuming requires an explicit action (button, Esc/P) and starts from a
   clean input state, so nothing from the paused period is replayed.
 - Input is sampled once per step. Presses shorter than one step are latched, so a quick tap still fires.
 - **End of match** freezes the World (no movement, attacks, damage, spawns or scoring; in-flight
-  projectiles are removed); only visual effects keep animating. The session reports the outcome once.
+  projectiles are removed); only visual effects keep animating, then the ticker stops. The session
+  reports the outcome once. If the player dies on the step that reaches the time limit, the end reason
+  is `destroyed`.
 - **Determinism:** every random decision (spawn side/position, enemy type after the opening sequence)
   goes through a seeded mulberry32 RNG. With `?seed=N&clock=manual` tests reproduce exact matches.
 
@@ -86,7 +91,8 @@ Order inside a step: player (turn, thrust, move, fire) → enemies (steer, move,
   Player shots only hit enemies and enemy shots only hit the player. Dead ships are flagged immediately
   and ignored by every later check in the same step.
 - **Ram:** capsule-vs-capsule distance (segment-segment) between a Chaser and the player.
-- **Ship separation** keeps ships from overlapping without damage; enemies never shove the player.
+- **Ship separation** pushes overlapping hulls apart using the same three capsule samples (no damage);
+  enemies never shove the player, and a Chaser touching the player is left to the ram check.
 - At 60 steps/s the fastest projectile moves ~10 units per step, below the smallest hit radius (26), so
   no swept tests are needed.
 
@@ -100,8 +106,8 @@ Both types turn at a limited rate and accelerate towards a target speed.
   down so it can turn.
 - **Chaser:** full speed towards the player; rams and explodes on contact.
 - **Shooter:** approaches; once within its attack range **with a clear line of fire** it slows to a hold
-  and aims straight at the player. It fires when the aim is within tolerance and line of sight from the
-  bow is clear. Behind an island it keeps manoeuvring instead of parking.
+  and aims straight at the player. It fires when the aim is within tolerance and the line from its bow to
+  the player is clear for a cannonball-sized shot. Behind an island it keeps manoeuvring instead of parking.
 
 ## Rendering and resource management
 
@@ -109,7 +115,8 @@ Both types turn at a limited rate and accelerate towards a target speed.
   with `fetch` + `createImageBitmap` and parsed with Pixi's `Spritesheet`. The Starling XML ship atlas and
   the raw tile grid are converted to Pixi JSON at build time. Retina tiles/UI are used when
   `devicePixelRatio ≥ 1.5`. The pack's "retina" ship sheet has the same resolution as the default one,
-  so only one is shipped. Textures are loaded **once per page** and shared by every match. They are never
+  so only one is shipped. If one sheet fails, the ones that did load are destroyed before the error is
+  reported, so Retry starts clean. Textures are loaded **once per page** and shared by every match. They are never
   destroyed between matches, which is what "reuse" means here, and they are deliberately not re-uploaded.
 - **Renderer:** one view per ship (hull sprite + fire sprite + health bar), created and destroyed with
   the entity. Hull textures switch with the damage stage (`ship_N` = colour + 6 × stage in the pack:
@@ -119,9 +126,10 @@ Both types turn at a limited rate and accelerate towards a target speed.
   from a sprite pool capped at 500 live particles, advanced with simulated time.
 - **Canvas sizing:** the arena is a fixed 1920×1080 world scaled uniformly to fit the viewport
   (letterboxed, aspect preserved). The renderer resolution follows `devicePixelRatio` (capped at 2) with
-  `autoDensity`, and a `ResizeObserver` on the host keeps it in sync (orientation changes included). The
+  `autoDensity`; a `ResizeObserver` on the host plus a window `resize` listener keep size and pixel
+  ratio in sync (orientation changes, browser zoom, moving to another monitor). The
   simulation never sees screen coordinates, so resizing cannot change the rules. There is no pointer aiming.
-- **Teardown:** `destroy()` detaches keyboard/blur/visibility listeners, disconnects the ResizeObserver,
+- **Teardown:** `destroy()` detaches keyboard/blur/visibility/resize listeners, disconnects the ResizeObserver,
   stops loops, removes the ticker callback, destroys the renderer's display objects and the two
   procedural textures, then destroys the Pixi app (removing the canvas). `restart()` destroys only the
   World and Renderer and keeps the app.
@@ -161,12 +169,15 @@ mid-match destroys the session without calling `onEnd`, so abandoned matches are
   `ApiError {kind: timeout | network | http, status, retryable}`; 4xx is not retried except 408/429.
 - Queries: key per resource + parameters, `staleTime: 0` with `refetchOnMount: 'always'`. Showing a tab
   again renders the cached page immediately and refetches in the background (an "Updating…" indicator).
-  Hidden tabs are unmounted. `keepPreviousData` for pagination, 2 retries with exponential backoff for
+  Hidden tabs are unmounted. Queries and the registration mutation use `networkMode: 'always'`: the
+  API lives in the page, so a browser "offline" flag must not freeze them. `keepPreviousData` for pagination, 2 retries with exponential backoff for
   transient errors, `AbortSignal` passed to Axios. UI states: loading, empty, error with Retry, background
   refresh.
-- **Late responses:** a superseded request is cancelled by TanStack, and in addition the query function
-  keeps the cached page if it already has a higher `revision` than the incoming one. So a slow response
-  computed before a registration can never replace newer data.
+- **Late responses:** after a registration, in-flight reads are **cancelled** before both tabs are
+  invalidated (invalidating a query that is still on its first load would otherwise just join the stale
+  request). In addition, every confirmed registration raises a client-side minimum `revision`: a page
+  computed against an older revision is fetched again, and a page older than the cached one for the
+  same key is discarded. Covered by `e2e/12` (a slow history read in flight while a match is registered).
 - **Registration:** at match end the record is **written to the outbox first**, then sent through a
   TanStack `MutationObserver` (module-level, so it survives the result screen unmounting when the player
   starts another match). There is one in-flight chain per `matchId`, so repeated clicks join it. On
@@ -179,9 +190,12 @@ mid-match destroys the session without calling `onEnd`, so abandoned matches are
 
 ### Mocks
 
-The handlers run in the MSW service worker in dev, in Playwright and in the static production build
-(`public/mockServiceWorker.js` is served at the site root). If the worker cannot start, the app still
-runs and the API calls fail like a network error. Fixtures are generated from a seeded RNG with fixed
+MSW's service worker (`public/mockServiceWorker.js`, served at the site root) intercepts the requests
+and hands them to the handlers, which run **in the page** — in dev, in Playwright and in the static
+production build alike. Because every open tab has its own copy of the handlers, the mock database
+treats `localStorage` as the source of truth and re-reads it before every read and write, so two tabs
+never overwrite each other's records. If the worker cannot start, the app still runs and the API calls
+fail like a network error. Fixtures are generated from a seeded RNG with fixed
 dates, and scenario latency uses the same seed. `latency=instant` removes artificial delay for tests.
 
 ## Balancing decisions
@@ -192,8 +206,9 @@ dates, and scenario latency uses the same seed. `latency=instant` removes artifi
   it requires turning side-on.
 - Chaser: fast (150 u/s), fragile (50), rams for 25, so four rams sink you. Shooter: slow (105 u/s),
   tougher (75), 10 damage per shot every 1.6 s from 380 u. It is pressure you must break rather than dodge.
-- Spawns every 3 s by default (max 10 alive), first spawn after 1.5 s, the first two always one of each
-  type, then 55/45 Chaser/Shooter, at least 560 u from the player. That leaves roughly 3 s before a fresh
+- Spawns every 3 s by default (max 10 alive; when the arena is full the due spawn happens as soon as a
+  slot frees up), first spawn after 1.5 s, the first two always one of each type, then 55/45
+  Chaser/Shooter, at least 560 u from the player. That leaves roughly 3 s before a fresh
   Chaser can reach you.
 
 ## Limitations
@@ -208,4 +223,10 @@ dates, and scenario latency uses the same seed. `latency=instant` removes artifi
 - Visual baselines are OS/GPU specific (recorded on Windows + Chromium).
 - Audio requires a user gesture (it unlocks on Play). The WAVs are loaded lazily after that and never
   block the match.
-- Mobile gameplay is landscape-only by design.
+- Mobile gameplay is landscape-only by design. Touch buttons are shown on coarse-pointer (touch)
+  devices; fine-pointer devices get a keyboard hint bar instead.
+- The two procedural textures' source `Graphics` and the arena frame are released by Pixi's own
+  graphics GC rather than destroyed explicitly: destroying their contexts right after use crashed
+  Pixi 8's batcher in testing.
+- Hull sprites are slightly larger than their colliders, so a ship pressed against the arena edge can
+  overhang the letterbox by a few pixels.

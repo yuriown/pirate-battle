@@ -20,17 +20,28 @@ export function retryDelay(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 4000);
 }
 
+/** Highest database revision this client knows exists (raised by every confirmed registration). */
+let minRevision = 0;
+
+export function noteRevision(revision: number): void {
+  minRevision = Math.max(minRevision, revision);
+}
+
 /**
  * A response computed against an older database revision (e.g. a slow request that started
- * before a match was registered) must not replace data the cache already has from a newer one.
+ * before a match was registered) must not replace newer data: it loses to a newer cached page,
+ * and if it is older than a registration we already confirmed, it is fetched again.
  */
 async function freshest<T>(client: QueryClient, key: QueryKey, load: () => Promise<Page<T>>): Promise<Page<T>> {
-  const incoming = await load();
+  let incoming = await load();
+  if (incoming.revision < minRevision) incoming = await load();
   const cached = client.getQueryData<Page<T>>(key);
   return cached && cached.revision > incoming.revision ? cached : incoming;
 }
 
 const sharedOptions = {
+  // The API is mocked in the page: a browser "offline" flag must not freeze the queries.
+  networkMode: 'always',
   placeholderData: keepPreviousData,
   staleTime: 0,
   refetchOnMount: 'always',
@@ -58,10 +69,18 @@ export function useHistoryQuery(query: HistoryQuery) {
   });
 }
 
-/** Refreshes both tabs; active queries refetch now, inactive ones on their next mount. */
-export function invalidateMatchQueries(client: QueryClient): Promise<void> {
-  return Promise.all([
+/**
+ * Refreshes both tabs; active queries refetch now, inactive ones on their next mount.
+ * In-flight reads are cancelled first: invalidating a query that is still on its first load
+ * would otherwise just join that (now stale) request.
+ */
+export async function invalidateMatchQueries(client: QueryClient): Promise<void> {
+  await Promise.all([
+    client.cancelQueries({ queryKey: queryKeys.rankingAll }),
+    client.cancelQueries({ queryKey: queryKeys.historyAll }),
+  ]);
+  await Promise.all([
     client.invalidateQueries({ queryKey: queryKeys.rankingAll }),
     client.invalidateQueries({ queryKey: queryKeys.historyAll }),
-  ]).then(() => undefined);
+  ]);
 }

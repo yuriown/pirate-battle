@@ -4,6 +4,7 @@ import { buildMatchConfig, DEFAULT_GAMEPLAY, type GameplayConfig, type PlayerOpt
 import { GameSession, type HudState, type MatchOutcome } from '@/game/GameSession';
 import { loadGameTextures, type GameTextures } from '@/game/render/assets';
 import { createStore, useStore, type Store } from '@/lib/store';
+import { setResultScreenOpen } from '@/lib/lastResult';
 import { testFlags, publishTestApi } from '@/lib/testFlags';
 import { OptionsDialog } from '../OptionsDialog';
 import { ResultPanel } from '../ResultPanel';
@@ -95,6 +96,7 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
   const [session, setSession] = useState<GameSession | null>(null);
   const [result, setResult] = useState<MatchRecord | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [mountError, setMountError] = useState<string | null>(null);
   const portrait = usePortraitTouch();
 
   // Latest values for the session callbacks without recreating the session.
@@ -110,6 +112,7 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
       getConfig: () => buildMatchConfig(optionsRef.current, testFlags.noSpawns ? TEST_NO_SPAWN_BASE : DEFAULT_GAMEPLAY),
       seed: testFlags.seed,
       manualClock: testFlags.manualClock,
+      collectFrameStats: testFlags.enabled,
       onEnd: (outcome) => setResult(onMatchEndRef.current(outcome)),
     });
     let disposed = false;
@@ -119,7 +122,9 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
         setSession(s);
         publishTestApi(s.createTestApi());
       },
-      (err: unknown) => console.error('Failed to start the combat renderer', err),
+      (err: unknown) => {
+        if (!disposed) setMountError(err instanceof Error ? err.message : 'Unknown error');
+      },
     );
     return () => {
       disposed = true;
@@ -131,13 +136,21 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
 
   const hud = useStore(session?.hud ?? IDLE_HUD);
 
+  // Portrait on a touch device keeps the match paused (also right after a restart).
   useEffect(() => {
-    if (portrait && session) session.pause('orientation');
-  }, [portrait, session]);
+    if (portrait && session && hud.status === 'running') session.pause('orientation');
+  }, [portrait, session, hud.status]);
+
+  // Esc/P must not resume the match behind the Options dialog or while the device is in portrait.
+  useEffect(() => {
+    if (session) session.input.pauseKeysLocked = optionsOpen || portrait;
+  }, [session, optionsOpen, portrait]);
 
   const restart = useCallback(() => {
     setResult(null);
     setOptionsOpen(false);
+    // A refresh during the new match must not bring back the previous result screen.
+    setResultScreenOpen(false);
     session?.restart();
   }, [session]);
 
@@ -147,6 +160,21 @@ function Combat({ textures, options, onSaveOptions, onMatchEnd, onExit }: Combat
     <main className="fixed inset-0 bg-[#0d2233]" aria-label="Combat">
       <h1 className="sr-only">Pirate Battle — combat</h1>
       <div ref={hostRef} className="absolute inset-0 touch-none select-none" />
+      {mountError && (
+        <Dialog labelledBy="mount-error-title" className="max-w-[420px] px-4 py-4">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <h2 id="mount-error-title" className="pb-heading text-2xl">
+              Could not start the battle
+            </h2>
+            <p role="alert" className="text-sm text-red-200">
+              The game renderer failed to start ({mountError}). Your browser may not support WebGL.
+            </p>
+            <button type="button" className="pb-btn w-60" onClick={onExit}>
+              Main Menu
+            </button>
+          </div>
+        </Dialog>
+      )}
       {session && (
         <>
           <Hud hud={hud} onPause={() => session.pause('manual')} />

@@ -2,7 +2,7 @@
 // Every response body is computed when the request ARRIVES and only then delayed, so a slow
 // response faithfully carries the older database revision it was computed against.
 import { delay, http, HttpResponse } from 'msw';
-import { API_ROUTES, type ApiErrorBody, type MatchRecord, type Page, type RankingEntry } from '@/api/contracts';
+import { API_ROUTES, type ApiErrorBody, type MatchConfig, type MatchRecord, type Page, type RankingEntry } from '@/api/contracts';
 import { isMatchRecord } from '@/api/guards';
 import { listRecords, readDb, upsertRecord } from './db';
 import { manyPagesFixtures, standardFixtures } from './fixtures';
@@ -112,9 +112,9 @@ function paginate<T>(items: T[], page: number, pageSize: number, revision: numbe
   };
 }
 
-function fixturesFor(control: MockControl): MatchRecord[] {
+function fixturesFor(control: MockControl, config: MatchConfig): MatchRecord[] {
   if (control.scenario === 'empty') return [];
-  return control.scenario === 'many-pages' ? manyPagesFixtures() : standardFixtures();
+  return control.scenario === 'many-pages' ? manyPagesFixtures(config) : standardFixtures();
 }
 
 function compareIds(a: string, b: string): number {
@@ -164,7 +164,7 @@ export const handlers = [
 
     const { revision } = readDb();
     const records = control.scenario === 'empty' ? [] : listRecords();
-    const ranked: RankingEntry[] = [...fixturesFor(control), ...records]
+    const ranked: RankingEntry[] = [...fixturesFor(control, { sessionDurationSec, spawnIntervalSec }), ...records]
       .filter(
         (r) => r.config.sessionDurationSec === sessionDurationSec && r.config.spawnIntervalSec === spawnIntervalSec,
       )

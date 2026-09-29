@@ -1,4 +1,5 @@
 import type { MatchRecord } from '@/api/contracts';
+import { isMatchRecord } from '@/api/guards';
 
 const RESULT_KEY = 'pb.lastResult.v1';
 const SCREEN_KEY = 'pb.showResult.v1';
@@ -7,7 +8,9 @@ const SCREEN_KEY = 'pb.showResult.v1';
 export function loadLastResult(): MatchRecord | null {
   try {
     const raw = localStorage.getItem(RESULT_KEY);
-    return raw ? (JSON.parse(raw) as MatchRecord) : null;
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    // Old or corrupted data must never crash the result screen.
+    return isMatchRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -28,6 +31,15 @@ export function resultScreenWasOpen(): boolean {
     return localStorage.getItem(SCREEN_KEY) === '1';
   } catch {
     return false;
+  }
+}
+
+export function clearLastResult(): void {
+  try {
+    localStorage.removeItem(RESULT_KEY);
+    localStorage.removeItem(SCREEN_KEY);
+  } catch {
+    // ignore
   }
 }
 

@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { OPTION_LIMITS, type PlayerOptions } from '@/game/config';
 import { validateOptions, type OptionErrors } from '@/game/options';
 import { sound } from '@/game/audio/SoundManager';
+import { getPlayer, setPlayerName, validatePlayerName } from '@/player/identity';
 import { Dialog } from './ui/Dialog';
 import { icon } from './ui/icons';
 
@@ -17,7 +18,10 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
   const [duration, setDuration] = useState(String(options.sessionDurationSec));
   const [spawn, setSpawn] = useState(String(options.spawnIntervalSec));
   const [muted, setMuted] = useState(sound.muted);
+  const [name, setName] = useState(getPlayer().playerName);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [errors, setErrors] = useState<OptionErrors>({});
+  const nameId = useId();
   const [saved, setSaved] = useState(false);
 
   const parsed = { sessionDurationSec: Number(duration), spawnIntervalSec: Number(spawn) };
@@ -25,10 +29,13 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     const next = validateOptions(parsed);
+    const badName = validatePlayerName(name);
     setErrors(next);
+    setNameError(badName);
     setSaved(false);
-    if (Object.keys(next).length > 0) return;
+    if (Object.keys(next).length > 0 || badName) return;
     onSave(parsed);
+    setPlayerName(name);
     sound.setMuted(muted);
     setSaved(true);
   };
@@ -75,6 +82,31 @@ export function OptionsDialog({ options, onSave, onClose, inMatch = false }: Opt
           max={s.max}
           step={s.step}
         />
+
+        <div className="flex flex-col items-center gap-1">
+          <label htmlFor={nameId} className="text-sm font-bold">
+            Captain name
+          </label>
+          <input
+            id={nameId}
+            className="pb-input w-48"
+            type="text"
+            maxLength={16}
+            autoComplete="nickname"
+            value={name}
+            onChange={(e) => { setName(e.target.value); setSaved(false); }}
+            aria-invalid={nameError ? true : undefined}
+            aria-describedby={`${nameId}-hint${nameError ? ` ${nameId}-error` : ''}`}
+          />
+          <p id={`${nameId}-hint`} className="text-xs text-amber-50/70">
+            Shown in the ranking (2–16 characters)
+          </p>
+          {nameError && (
+            <p id={`${nameId}-error`} role="alert" className="text-xs font-bold text-red-300">
+              {nameError}
+            </p>
+          )}
+        </div>
 
         <label className="flex items-center gap-2 text-sm font-bold">
           <input type="checkbox" checked={muted} onChange={(e) => { setMuted(e.target.checked); setSaved(false); }} className="h-5 w-5 accent-amber-400" />

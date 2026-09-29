@@ -1,7 +1,7 @@
 // Mock server database, persisted so confirmed matches survive a page refresh.
 import type { MatchRecord } from '@/api/contracts';
 import { isMatchRecord } from '@/api/guards';
-import { isRecord, readJson, removeKey, writeJson } from '@/net/storage';
+import { isRecord, readJson, writeJson } from '@/net/storage';
 
 export const DB_KEY = 'pb.mock.db.v1';
 
@@ -19,27 +19,29 @@ function load(): DbState {
   return { revision: 0, records: [] };
 }
 
-let state: DbState = load();
+// The MSW handlers run inside each page, so every open tab has its own copy of this module.
+// Storage is therefore the source of truth: it is re-read before every read and write, so two
+// tabs registering matches never overwrite each other's records.
 
 export function readDb(): DbState {
-  return state;
+  return load();
 }
 
 export function listRecords(): MatchRecord[] {
-  return [...state.records];
+  return [...load().records];
 }
 
 /** Idempotent insert keyed by matchId: a replay returns the stored record untouched. */
 export function upsertRecord(record: MatchRecord): { record: MatchRecord; created: boolean; revision: number } {
+  const state = load();
   const existing = state.records.find((r) => r.matchId === record.matchId);
   if (existing) return { record: existing, created: false, revision: state.revision };
-  state = { revision: state.revision + 1, records: [...state.records, record] };
-  writeJson(DB_KEY, state);
-  return { record, created: true, revision: state.revision };
+  const next = { revision: state.revision + 1, records: [...state.records, record] };
+  writeJson(DB_KEY, next);
+  return { record, created: true, revision: next.revision };
 }
 
 export function clearDb(): void {
-  removeKey(DB_KEY);
-  // Keep the revision monotonic within the session so cached pages never look newer than fresh ones.
-  state = { revision: state.revision + 1, records: [] };
+  // Empty, but keep the revision monotonic so cached pages never look newer than fresh ones.
+  writeJson(DB_KEY, { revision: load().revision + 1, records: [] });
 }

@@ -4,7 +4,8 @@ import { useRankingQuery } from '@/api/queries';
 import { formatConfig, formatDuration, formatPlayedAt, formatRank } from './format';
 import { EmptyState, ErrorState, LoadingState, Pager, UpdatingIndicator } from './TableStates';
 
-const PAGE_SIZE = 8;
+// Matches the reference layout and keeps the whole log on a 720 px tall screen.
+const PAGE_SIZE = 6;
 
 interface RankingTabProps {
   config: MatchConfig;
@@ -34,7 +35,7 @@ export function RankingTab({ config, playerId }: RankingTabProps) {
   return (
     <section className="flex flex-col gap-3" aria-labelledby="ranking-heading">
       <header className="flex items-baseline justify-between gap-3">
-        <h2 id="ranking-heading" className="text-amber-50">
+        <h2 id="ranking-heading" className="sr-only">
           Ranking
         </h2>
         <UpdatingIndicator active={isFetching && !isPending} />

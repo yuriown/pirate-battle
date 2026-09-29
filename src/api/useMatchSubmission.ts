@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { MutationObserver, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { submitMatch, toApiError, type ApiError } from './client';
 import type { MatchRecord, SubmitMatchResponse } from './contracts';
-import { invalidateMatchQueries, retryDelay, shouldRetry } from './queries';
+import { invalidateMatchQueries, noteRevision, retryDelay, shouldRetry } from './queries';
 import {
   getEntry,
   getOutboxSnapshot,
@@ -43,6 +43,7 @@ export function sendMatch(matchId: string): Promise<void> {
     },
     retry: shouldRetry,
     retryDelay,
+    networkMode: 'always',
   });
 
   const chain = observer
@@ -50,6 +51,7 @@ export function sendMatch(matchId: string): Promise<void> {
     .then(
       (response) => {
         markConfirmed(response.record.matchId);
+        noteRevision(response.revision);
         void invalidateMatchQueries(client);
       },
       (error: unknown) => {

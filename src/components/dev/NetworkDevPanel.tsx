@@ -2,6 +2,7 @@ import { useId, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateMatchQueries } from '@/api/queries';
 import { useMatchSubmissions } from '@/api/useMatchSubmission';
+import { clearLastResult } from '@/lib/lastResult';
 import { resetMockState } from '@/mocks/control';
 import { getControl, isScenarioId, SCENARIOS, setControl, subscribeControl, type MockControl } from '@/mocks/scenarios';
 
@@ -47,11 +48,13 @@ export function NetworkDevPanel() {
     void invalidateMatchQueries(queryClient);
   };
 
+  // Back to the initial state: mock DB, pending submissions, scenario and the local last result.
+  // A reload guarantees every in-memory copy (queries, menu summary) starts clean too.
   const reset = () => {
     resetMockState();
-    queryClient.removeQueries({ queryKey: ['ranking'] });
-    queryClient.removeQueries({ queryKey: ['history'] });
-    void invalidateMatchQueries(queryClient);
+    clearLastResult();
+    queryClient.clear();
+    window.location.reload();
   };
 
   return (

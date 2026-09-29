@@ -15,9 +15,11 @@ test.describe('11. Match registration, both tabs updated, pending recovery after
 
   test('a finished match appears once in history and once in the ranking', async ({ page }) => {
     await openApp(page, { spawns: false, options: { sessionDurationSec: 60, spawnIntervalSec: 1.5 } });
-    // Open both tabs first so they are cached, then check they refresh after the registration.
+    // Open both tabs first so they are cached, then check both refresh after the registration.
     await page.getByRole('button', { name: 'Match History', exact: true }).click();
     await expect(page.getByRole('tabpanel')).toContainText('No battles yet');
+    await page.getByRole('tab', { name: 'Ranking' }).click();
+    await expect(page.getByRole('tabpanel')).toContainText('No battles recorded yet');
     await page.getByRole('button', { name: 'Main Menu' }).click();
 
     const end = await finishMatch(page);
@@ -45,7 +47,7 @@ test.describe('11. Match registration, both tabs updated, pending recovery after
     await expect(page.getByTestId('submission-status')).toHaveAttribute('data-status', 'failed', { timeout: 15_000 });
     // Starting another match while a record is pending is allowed.
     await page.getByRole('button', { name: 'Play Again' }).click();
-    await expect(page.getByTestId('hud-score')).toHaveAccessibleName('Score 0');
+    await expect(page.getByTestId('hud-score')).toHaveText('Score 0');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Main Menu' }).click();
 

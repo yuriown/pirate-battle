@@ -19,7 +19,8 @@ interface PauseDialogProps {
 
 export function PauseDialog({ reason, onResume, onRestart, onOptions, onMainMenu, canResume }: PauseDialogProps) {
   return (
-    <Dialog labelledBy="pause-title" describedBy="pause-desc" onEscape={canResume ? onResume : undefined} className="max-w-[420px] px-4 py-4 short:max-w-[560px] short:py-1" testId="pause-dialog">
+    <Dialog labelledBy="pause-title" describedBy="pause-desc" onEscape={canResume ? onResume : undefined}
+      shortcuts={canResume ? { KeyP: onResume } : undefined} className="max-w-[420px] px-4 py-4 short:max-w-[560px] short:py-1" testId="pause-dialog">
       <div className="flex flex-col items-center gap-3 text-center short:gap-1.5">
         <h2 id="pause-title" className="pb-heading text-3xl short:text-xl">
           Paused

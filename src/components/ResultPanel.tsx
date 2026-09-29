@@ -1,6 +1,6 @@
 import type { MatchRecord } from '@/api/contracts';
 import { useMatchSubmissions } from '@/api/useMatchSubmission';
-import { formatDuration } from './menu/format';
+import { formatDuration, formatEndReason } from './menu/format';
 
 interface ResultPanelProps {
   record: MatchRecord;
@@ -24,7 +24,7 @@ export function ResultPanel({ record, onPlayAgain, onMainMenu }: ResultPanelProp
       </p>
       <p className="pb-caption" data-testid="result-summary">
         {record.score === 1 ? 'Point' : 'Points'} · <span aria-label={`${Math.floor(record.durationMs / 1000)} seconds played`}>{formatDuration(record.durationMs)}</span> ·{' '}
-        {destroyed ? 'Defeated' : 'Time up'}
+        {formatEndReason(record.endReason)}
       </p>
       <p className="text-xs text-amber-50/70">
         {record.config.sessionDurationSec} s battle · {record.config.spawnIntervalSec} s spawn interval

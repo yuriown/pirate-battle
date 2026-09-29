@@ -18,11 +18,12 @@ export function Hud({ hud, onPause }: HudProps) {
     <>
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-4 short:p-1.5">
         <div className="flex items-center gap-1" role="group" aria-label="Hull">
+          <span className="sr-only">Hull integrity</span>
           <img src={icon.heart} alt="" className="h-9 w-9 sm:h-11 sm:w-11 short:h-7 short:w-7" />
           <div className="relative h-[36px] w-[192px] sm:h-[48px] sm:w-[256px] short:h-[30px] short:w-[160px]">
-            <img src="/assets/ui/2x/hud/health_frame.png" alt="" className="absolute inset-0 h-full w-full" />
+            <img src={icon.healthFrame} alt="" className="absolute inset-0 h-full w-full" />
             <img
-              src={`/assets/ui/2x/hud/health_fill_${fill}.png`}
+              src={icon.healthFill(fill)}
               alt=""
               className="absolute inset-0 h-full w-full"
               style={{ clipPath: `inset(0 ${100 - (ratio <= 0 ? 0 : visible)}% 0 0)` }}
@@ -34,19 +35,24 @@ export function Hud({ hud, onPause }: HudProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="pb-counter" aria-label={`Score ${hud.score}`} data-testid="hud-score">
+          <p className="pb-counter m-0" data-testid="hud-score">
             <img src={icon.score} alt="" />
-            <span aria-hidden="true">{hud.score}</span>
-          </div>
-          <div className="pb-counter" aria-label={`Time remaining ${hud.timeRemainingSec} seconds`} data-testid="hud-time">
+            <span className="sr-only">Score </span>
+            <span>{hud.score}</span>
+          </p>
+          <p className="pb-counter m-0" data-testid="hud-time">
             <img src={icon.time} alt="" />
-            <span aria-hidden="true">{formatClock(hud.timeRemainingSec)}</span>
-          </div>
+            <span className="sr-only">Time remaining </span>
+            <span>{formatClock(hud.timeRemainingSec)}</span>
+          </p>
           <button type="button" className="pb-round-btn pointer-events-auto" onClick={onPause} aria-label="Pause (Esc)" disabled={hud.status !== 'running'}>
             <img src={icon.pause} alt="" />
           </button>
         </div>
       </div>
+      <p className="desktop-only pointer-events-none absolute inset-x-0 bottom-2 m-0 text-center text-xs font-bold text-amber-50/90 [text-shadow:0_1px_2px_#000]">
+        W/↑ sail · A/D turn · Space front cannon · Q/E broadsides · Esc pause
+      </p>
       <Announcer hud={hud} />
     </>
   );

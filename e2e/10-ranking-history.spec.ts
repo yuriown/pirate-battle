@@ -10,13 +10,13 @@ test.describe('10. Ranking and Match History: queries, pagination, loading, empt
     await expect(panel.locator('caption')).toContainText('90 second battles');
     await expect(panel.getByText('Page 1 of 3')).toBeVisible();
     const scores = await panel.locator('tbody tr td:nth-child(3)').allInnerTexts();
-    expect(scores).toHaveLength(8);
+    expect(scores).toHaveLength(6);
     expect([...scores].map(Number)).toEqual([...scores].map(Number).sort((a, b) => b - a));
     await expect(panel.locator('tbody tr').first().locator('td').first()).toHaveText('01');
 
     await panel.getByRole('button', { name: 'Next page' }).click();
     await expect(panel.getByText('Page 2 of 3')).toBeVisible();
-    await expect(panel.locator('tbody tr').first().locator('td').first()).toHaveText('09');
+    await expect(panel.locator('tbody tr').first().locator('td').first()).toHaveText('07');
     await panel.getByRole('button', { name: 'Previous page' }).click();
     await expect(panel.getByText('Page 1 of 3')).toBeVisible();
 
@@ -25,6 +25,31 @@ test.describe('10. Ranking and Match History: queries, pagination, loading, empt
     await page.keyboard.press('ArrowRight');
     await expect(page.getByRole('tab', { name: 'Match History' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('tabpanel')).toContainText('No battles yet');
+  });
+
+  test('match history is paginated, newest first', async ({ page }) => {
+    await openApp(page);
+    // Register 8 matches for this player through the mocked API (6 per page -> 2 pages).
+    await page.evaluate(async () => {
+      const player = JSON.parse(localStorage.getItem('pb.player.v1')!);
+      for (let i = 0; i < 8; i++) {
+        const record = {
+          matchId: `seed-${i}`, playerId: player.playerId, playerName: player.playerName,
+          playedAt: new Date(Date.UTC(2026, 0, 1 + i, 12)).toISOString(), score: i, durationMs: 60_000,
+          endReason: 'time_up', config: { sessionDurationSec: 60, spawnIntervalSec: 3 },
+        };
+        await fetch('/api/matches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record) });
+      }
+    });
+    await page.getByRole('button', { name: 'Match History', exact: true }).click();
+    const saved = page.getByRole('tabpanel').locator('table').filter({ hasText: 'Saved matches' });
+    await expect(saved.locator('tbody tr')).toHaveCount(6);
+    await expect(saved.locator('tbody tr').first().locator('td').first()).toHaveText('7');
+    await expect(page.getByRole('tabpanel').getByText('Page 1 of 2')).toBeVisible();
+    await page.getByRole('tabpanel').getByRole('button', { name: 'Next page' }).click();
+    await expect(page.getByRole('tabpanel').getByText('Page 2 of 2')).toBeVisible();
+    await expect(saved.locator('tbody tr')).toHaveCount(2);
+    await expect(saved.locator('tbody tr').last().locator('td').first()).toHaveText('0');
   });
 
   test('shows a loading state on slow networks', async ({ page }) => {

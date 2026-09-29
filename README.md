@@ -6,7 +6,7 @@ islands, sink Chasers and Shooters, and climb the ranking before time runs out.
 - Live build: https://pirate-battle-plum.vercel.app/ (Vercel, static build with the MSW mocks)
 - Architecture and design decisions: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Performance report: [docs/performance/PERFORMANCE.md](docs/performance/PERFORMANCE.md)
-- Last Playwright run (80/80 passed, desktop + mobile Chromium): [docs/test-report/index.html](docs/test-report/index.html) — open with `npx playwright show-report docs/test-report`
+- Last Playwright run (83 passed, 1 skipped by design — the touch-controls test runs on mobile only; desktop + mobile Chromium): [docs/test-report/index.html](docs/test-report/index.html) — open with `npx playwright show-report docs/test-report`
 
 | Concern | Technology |
 | --- | --- |
@@ -64,7 +64,8 @@ parameters (see [Test instrumentation](#test-instrumentation)).
 | Starboard broadside (3 balls, right) | `E` / `L` | right fire button |
 | Pause / resume | `Esc` / `P` | pause button (top right) |
 
-Hold any fire control to keep shooting at the weapon's cooldown. Moving, turning and firing can be
+Touch buttons appear on touch (coarse pointer) devices; on desktop a keyboard hint bar is shown
+during the match instead. Hold any fire control to keep shooting at the weapon's cooldown. Moving, turning and firing can be
 combined, including multi-touch. Game keys are only captured while a match is running; menus use normal
 keyboard navigation (Tab, Enter/Space, arrow keys in the Ranking/History tabs, Esc closes dialogs).
 
@@ -98,7 +99,8 @@ The Options screen exposes and validates:
 | Game session time | 60–180 s, whole seconds (steppers move in 10 s) | 90 s |
 | Enemy spawn time | 1–10 s, in 0.5 s steps | 3 s |
 
-Options, the mute setting and the last completed result are persisted in `localStorage`.
+Options also holds the **Captain name** shown in the ranking (2–16 characters) and a mute toggle.
+Options, the name, the mute setting and the last completed result are persisted in `localStorage`.
 
 ## Network scenarios (MSW)
 
@@ -108,14 +110,15 @@ submissions persist in `localStorage`, so they survive refreshes.
 
 **Selecting a scenario:** use the **Network** panel (button at the bottom left of the menu screens), or
 the URL: `?scenario=<id>&seed=<n>&latency=instant|realistic&timeout=<ms>` (read once at startup and
-persisted). **Reset:** the panel's *Reset mock data* button (or `window.__pbMock.reset()`) restores the
-initial state: clears the mock database, pending submissions, confirmed ids and scenario settings.
+persisted). **Reset:** the panel's *Reset mock data* button restores the initial state — mock database,
+pending submissions, confirmed ids, scenario settings and the local last result — and reloads the page.
+`window.__pbMock.reset()` does the same for the mock state without reloading (used by scripts).
 
 | Id | Behaviour |
 | --- | --- |
 | `normal` | Success with seeded latency (150–450 ms) |
 | `empty` | Ranking and history return no rows (registering still works) |
-| `many-pages` | ~120 ranking entries per configuration |
+| `many-pages` | ~120 ranking entries for whatever configuration is requested |
 | `slow` | Every request takes 2.5 s |
 | `jitter` | Seeded variable latency, 100 ms – 3 s |
 | `out-of-order` | Reads alternate slow/fast so older responses arrive after newer ones |
@@ -160,7 +163,7 @@ Opt-in through the URL, never active in normal play:
 | Parameter | Effect |
 | --- | --- |
 | `?e2e` | Exposes `window.__PB__.game`: `getState()`, `advance(ms)`, `setManualClock()`, `spawnEnemy()`, frame stats |
-| `&seed=N` | Fixes the simulation RNG (spawns are reproducible) |
+| `&seed=N` | With `?e2e`, fixes the simulation RNG (spawns are reproducible). Also seeds mock latency. |
 | `&clock=manual` | The simulation only advances through `advance(ms)` (fixed 1/60 s steps) |
 | `&spawns=off` | Disables automatic spawns so a test can arrange enemies |
 

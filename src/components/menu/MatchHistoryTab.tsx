@@ -4,7 +4,8 @@ import { useMatchSubmissions } from '@/api/useMatchSubmission';
 import { formatDuration, formatEndReason, formatPlayedAt } from './format';
 import { EmptyState, ErrorState, LoadingState, Pager, UpdatingIndicator } from './TableStates';
 
-const PAGE_SIZE = 8;
+// Matches the reference layout and keeps the whole log on a 720 px tall screen.
+const PAGE_SIZE = 6;
 
 interface MatchHistoryTabProps {
   playerId: string;

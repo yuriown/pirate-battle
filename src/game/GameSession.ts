@@ -35,6 +35,8 @@ export interface SessionOptions {
   getConfig: () => GameplayConfig;
   seed?: number;
   manualClock?: boolean;
+  /** Record per-frame timings for the profiling/test instrumentation. */
+  collectFrameStats?: boolean;
   onEnd: (outcome: MatchOutcome) => void;
 }
 
@@ -98,6 +100,8 @@ export class GameSession {
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    // A pixel-ratio change does not always change the host's CSS size (e.g. monitor switch).
+    window.addEventListener('resize', this.handleWindowResize);
     window.addEventListener('blur', this.handleBlur);
     document.addEventListener('visibilitychange', this.handleVisibility);
     this.input.attach(window, () => this.togglePause());
@@ -130,7 +134,7 @@ export class GameSession {
     this.timeWarned = false;
     this.matchIndex++;
     this.input.setEnabled(true);
-    sound.setSuspended(false);
+    sound.setPaused(false);
     sound.play('game_start');
     sound.startLoop('ocean_ambience_loop');
     sound.startLoop('ship_sailing_loop');
@@ -143,7 +147,7 @@ export class GameSession {
     this.input.setEnabled(false);
     this.accumulator = 0;
     sound.play('game_pause');
-    sound.setSuspended(true);
+    sound.setPaused(true);
     this.publishHud('paused', reason);
     // Stop the ticker: nothing advances (timers, cooldowns, effects) and no frames are wasted.
     this.app.ticker.stop();
@@ -155,7 +159,7 @@ export class GameSession {
     if (this.hud.get().status !== 'paused' || !this.app) return;
     this.input.setEnabled(true);
     this.accumulator = 0;
-    sound.setSuspended(false);
+    sound.setPaused(false);
     sound.play('game_resume');
     this.publishHud('running', null);
     this.app.ticker.start();
@@ -170,9 +174,11 @@ export class GameSession {
   // ---------------------------------------------------------------- loop
 
   private tick = (ticker: Ticker): void => {
-    this.stats.frames++;
-    // 30k samples = over 4 min at 120 Hz, enough for the longest (180 s) match.
-    if (this.stats.frameMsSamples.length < 30000) this.stats.frameMsSamples.push(ticker.deltaMS);
+    if (this.options.collectFrameStats) {
+      this.stats.frames++;
+      // 30k samples = over 4 min at 120 Hz, enough for the longest (180 s) match.
+      if (this.stats.frameMsSamples.length < 30000) this.stats.frameMsSamples.push(ticker.deltaMS);
+    }
     if (this.manualClock) {
       this.renderFrame(0);
       return;
@@ -196,8 +202,9 @@ export class GameSession {
         steps++;
         if (this.world.status !== 'running') break;
       }
-      // Too far behind (slow device / long frame): drop the backlog instead of spiralling.
-      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
+      // Too far behind (slow device / long frame): drop only the backlog beyond one step instead
+      // of spiralling. Below ~7.5 fps game time therefore runs slower than real time.
+      if (steps === MAX_STEPS_PER_FRAME) this.accumulator = Math.min(this.accumulator, SIM_STEP);
     } else {
       // Ended: the world is frozen, but let the final explosions finish animating.
       simulated = seconds;
@@ -213,11 +220,14 @@ export class GameSession {
       renderer.handleEvents(events);
       this.playSounds(events);
     }
-    renderer.sync(this.world, simulatedSec);
+    const interpolating = this.world.status === 'running' && !this.manualClock;
+    renderer.sync(this.world, simulatedSec, interpolating ? this.accumulator / SIM_STEP : 1);
     sound.setLoopVolume('ship_sailing_loop', this.world.status === 'running' ? (this.world.player.speed / this.world.config.player.maxSpeed) * 0.35 : 0);
 
     if (this.world.status === 'ended' && !this.endNotified) this.finish();
     else if (this.hud.get().status === 'running') this.publishHud('running', null);
+    // Once the final explosions have faded behind the result screen, stop spending frames.
+    else if (this.endNotified && renderer.idle && this.app?.ticker.started) this.app.ticker.stop();
   }
 
   private finish(): void {
@@ -262,6 +272,10 @@ export class GameSession {
         case 'hit':
           sound.play('wood_hit', ev.shipId === this.world.player.id ? 1 : 0.7);
           break;
+        case 'rammed':
+          sound.play('ship_collision');
+          sound.play('wood_hit');
+          break;
         case 'projectile-expired':
           if (ev.reason !== 'bounds' && splashes++ < 2) sound.play('water_hit');
           break;
@@ -294,6 +308,8 @@ export class GameSession {
 
   private handleBlur = (): void => this.pause('blur');
 
+  private handleWindowResize = (): void => this.resize();
+
   private handleVisibility = (): void => {
     if (document.visibilityState === 'hidden') this.pause('hidden');
   };
@@ -304,6 +320,9 @@ export class GameSession {
     if (!app || !host) return;
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
+    // Browser zoom or a move to another monitor changes the pixel ratio after startup.
+    const resolution = Math.min(globalThis.devicePixelRatio || 1, 2);
+    if (app.renderer.resolution !== resolution) app.renderer.resolution = resolution;
     app.renderer.resize(w, h);
     this.renderer?.layout(w, h);
     if (!app.ticker.started) app.render();
@@ -347,11 +366,11 @@ export class GameSession {
     this.destroyed = true;
     this.input.detach();
     window.removeEventListener('blur', this.handleBlur);
+    window.removeEventListener('resize', this.handleWindowResize);
     document.removeEventListener('visibilitychange', this.handleVisibility);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     sound.stopLoops();
-    sound.setSuspended(false);
     if (this.app) {
       this.app.ticker.remove(this.tick);
       this.renderer?.destroy();

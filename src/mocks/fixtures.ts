@@ -31,13 +31,13 @@ function generateSet(config: MatchConfig, count: number, seed: number): MatchRec
     const name = CAPTAINS[i % CAPTAINS.length];
     const survived = rnd() < 0.55;
     const durationMs = survived ? sessionMs : Math.round(sessionMs * (0.25 + rnd() * 0.7));
-    const pace = 3 + rnd() * 5; // points per active second
+    const pace = 0.12 + rnd() * 0.3; // enemies sunk per active second (a real match scores ~10–40)
     records.push({
       matchId: `fx-${config.sessionDurationSec}-${config.spawnIntervalSec}-${String(i + 1).padStart(3, '0')}`,
       playerId: `fixture-${slug(name)}`,
       playerName: name,
       playedAt: new Date(EPOCH_MS + Math.floor(rnd() * 90 * DAY_MS)).toISOString(),
-      score: Math.round((durationMs / 1000) * pace / 10) * 10,
+      score: Math.round((durationMs / 1000) * pace),
       durationMs,
       endReason: survived ? 'time_up' : 'destroyed',
       config: { ...config },
@@ -62,14 +62,20 @@ function generateSet(config: MatchConfig, count: number, seed: number): MatchRec
 }
 
 let standardCache: MatchRecord[] | undefined;
-let manyCache: MatchRecord[] | undefined;
+const manyCache = new Map<string, MatchRecord[]>();
 
 export function standardFixtures(): MatchRecord[] {
   standardCache ??= STANDARD_SETS.flatMap(({ config, count }, i) => generateSet(config, count, 1000 + i));
   return standardCache;
 }
 
-export function manyPagesFixtures(): MatchRecord[] {
-  manyCache ??= STANDARD_SETS.flatMap(({ config }, i) => generateSet(config, 120, 2000 + i));
-  return manyCache;
+/** ~120 entries for whichever configuration is requested (seeded by the configuration itself). */
+export function manyPagesFixtures(config: MatchConfig): MatchRecord[] {
+  const key = `${config.sessionDurationSec}/${config.spawnIntervalSec}`;
+  let set = manyCache.get(key);
+  if (!set) {
+    set = generateSet(config, 120, 2000 + Math.round(config.sessionDurationSec * 100 + config.spawnIntervalSec * 10));
+    manyCache.set(key, set);
+  }
+  return set;
 }
