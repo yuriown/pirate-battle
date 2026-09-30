@@ -40,18 +40,39 @@ const emit = (f: number) => {
 };
 
 /**
+ * Subscribes to texture loading progress updates.
+ * Returns an unsubscribe cleanup function to detach the listener.
+ */
+export function subscribeProgress(listener: LoadProgress): () => void {
+  listeners.add(listener);
+  listener(lastProgress);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Unsubscribes a progress listener from game texture loading.
+ */
+export function unsubscribeLoadProgress(listener: LoadProgress): boolean {
+  return listeners.delete(listener);
+}
+
+/**
  * Loads every texture the combat needs, once per page. Textures are shared by all matches
  * (they are never destroyed between sessions). A failed load is not cached, so the caller
  * can simply call again to retry.
  */
-export function loadGameTextures(onProgress?: LoadProgress): Promise<GameTextures> {
+export function loadGameTextures(onProgress?: LoadProgress, signal?: AbortSignal): Promise<GameTextures> {
   if (loaded) {
-    onProgress?.(1);
+    if (!signal?.aborted) {
+      onProgress?.(1);
+    }
     return Promise.resolve(loaded);
   }
-  if (onProgress) {
-    listeners.add(onProgress);
-    onProgress(lastProgress);
+  let unsubscribe: (() => void) | undefined;
+  if (onProgress && !signal?.aborted) {
+    unsubscribe = subscribeProgress(onProgress);
   }
   if (!inFlight) {
     lastProgress = 0;
@@ -68,8 +89,12 @@ export function loadGameTextures(onProgress?: LoadProgress): Promise<GameTexture
     );
   }
   const current = inFlight;
-  if (onProgress) {
-    const off = () => listeners.delete(onProgress);
+  if (unsubscribe) {
+    const off = () => {
+      unsubscribe?.();
+      signal?.removeEventListener('abort', off);
+    };
+    signal?.addEventListener('abort', off, { once: true });
     current.then(off, off);
   }
   return current;

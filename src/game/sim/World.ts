@@ -1,7 +1,7 @@
 import type { EnemyKind, GameplayConfig, ShipStats, WeaponConfig } from '../config';
 import { ARENA, OBSTACLES, PLAYER_SPAWN } from './arena';
 import { circleVsObstacle, hasLineOfSight, insideArena, pointInObstacle } from './collision';
-import { approach, clamp, dist, pointSegmentDist2, segmentSegmentDist2, turnTowards, wrapAngle } from './math';
+import { approach, clamp, dist2, pointSegmentDist2, segmentSegmentDist2, turnTowards, wrapAngle } from './math';
 import { Rng } from './rng';
 import type { EndReason, InputState, Projectile, Ship, ShipKind, SimCounters, SimEvent, WorldSnapshot } from './types';
 
@@ -37,7 +37,9 @@ export class World {
   };
 
   private readonly rng: Rng;
-  private events: SimEvent[] = [];
+  private eventsA: SimEvent[] = [];
+  private eventsB: SimEvent[] = [];
+  private events = this.eventsA;
   private nextId = 1;
   private spawnTimer: number;
   private spawnCount = 0;
@@ -56,7 +58,8 @@ export class World {
 
   drainEvents(): SimEvent[] {
     const out = this.events;
-    this.events = [];
+    this.events = out === this.eventsA ? this.eventsB : this.eventsA;
+    this.events.length = 0;
     return out;
   }
 
@@ -77,7 +80,7 @@ export class World {
     this.checkRams();
     if (this.status !== 'running') return;
     this.separateShips();
-    this.enemies = this.enemies.filter((e) => e.alive);
+    this.removeDeadEnemies();
     if (this.time >= duration) {
       this.end('time_up');
       return;
@@ -85,13 +88,35 @@ export class World {
     this.updateSpawner(dt);
   }
 
-  private storePreviousPoses(): void {
-    for (const s of [this.player, ...this.enemies]) {
-      s.prevX = s.x;
-      s.prevY = s.y;
-      s.prevRotation = s.rotation;
+  private removeDeadEnemies(): void {
+    const enemies = this.enemies;
+    let write = 0;
+    for (let read = 0; read < enemies.length; read++) {
+      const e = enemies[read];
+      if (e.alive) {
+        enemies[write++] = e;
+      }
     }
-    for (const pr of this.projectiles) {
+    enemies.length = write;
+  }
+
+  private storePreviousPoses(): void {
+    const p = this.player;
+    p.prevX = p.x;
+    p.prevY = p.y;
+    p.prevRotation = p.rotation;
+
+    const enemies = this.enemies;
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      e.prevX = e.x;
+      e.prevY = e.y;
+      e.prevRotation = e.rotation;
+    }
+
+    const projs = this.projectiles;
+    for (let i = 0; i < projs.length; i++) {
+      const pr = projs[i];
       pr.prevX = pr.x;
       pr.prevY = pr.y;
     }
@@ -139,7 +164,7 @@ export class World {
     const fx = Math.cos(p.rotation), fy = Math.sin(p.rotation);
     const sx = Math.cos(angle), sy = Math.sin(angle);
     const out = p.radius + 4;
-    for (const k of [-1, 0, 1]) {
+    for (let k = -1; k <= 1; k++) {
       const x = p.x + fx * k * w.spacing + sx * out;
       const y = p.y + fy * k * w.spacing + sy * out;
       this.spawnProjectile('player', x, y, angle, w);
@@ -157,16 +182,19 @@ export class World {
       tickCooldowns(e, dt);
       const stats = e.kind === 'chaser' ? this.config.chaser : this.config.shooter;
       const toPlayer = Math.atan2(p.y - e.y, p.x - e.x);
-      const distance = dist(e.x, e.y, p.x, p.y);
 
       let targetSpeed = stats.maxSpeed;
       let holding = false;
+      let d2 = 0;
       if (e.kind === 'shooter') {
         const range = this.config.shooter.attackRange;
+        const range2 = range * range;
+        d2 = dist2(e.x, e.y, p.x, p.y);
         // Close in until comfortably inside the attack range, then hold position and aim —
         // but only with a clear line of fire; behind an island it keeps manoeuvring.
-        if (distance < range && hasLineOfSight(e.x, e.y, p.x, p.y)) {
-          holding = distance < range * 0.75;
+        if (d2 < range2 && hasLineOfSight(e.x, e.y, p.x, p.y)) {
+          const holdRange = range * 0.75;
+          holding = d2 < holdRange * holdRange;
           targetSpeed = holding ? 0 : stats.maxSpeed * 0.4;
         }
       }
@@ -179,7 +207,7 @@ export class World {
       e.speed = approach(e.speed, targetSpeed, (e.speed < targetSpeed ? stats.acceleration : stats.deceleration) * dt);
       this.moveShip(e, dt);
 
-      if (e.kind === 'shooter') this.tryShooterFire(e, distance);
+      if (e.kind === 'shooter') this.tryShooterFire(e, d2);
     }
   }
 
@@ -196,7 +224,10 @@ export class World {
     }
     if (e.avoidSide === 0) e.avoidSide = this.freeSteps(e, desired, 1) <= this.freeSteps(e, desired, -1) ? 1 : -1;
     e.avoidTimer = AVOID_MEMORY_SEC;
-    for (const side of [e.avoidSide, -e.avoidSide]) {
+    const side1 = e.avoidSide;
+    const side2 = -e.avoidSide;
+    for (let s = 0; s < 2; s++) {
+      const side = s === 0 ? side1 : side2;
       const k = this.freeSteps(e, desired, side);
       if (k <= AVOID_STEPS) {
         e.avoidSide = side;
@@ -225,9 +256,9 @@ export class World {
     return true;
   }
 
-  private tryShooterFire(e: Ship, distance: number): void {
+  private tryShooterFire(e: Ship, d2: number): void {
     const cfg = this.config.shooter;
-    if (e.cooldowns.front > 0 || distance > cfg.attackRange || !this.player.alive) return;
+    if (e.cooldowns.front > 0 || d2 > cfg.attackRange * cfg.attackRange || !this.player.alive) return;
     const aim = Math.atan2(this.player.y - e.y, this.player.x - e.x);
     if (Math.abs(wrapAngle(aim - e.rotation)) > cfg.aimTolerance) return;
     const bow = e.halfLength + e.radius + 4;
@@ -257,35 +288,62 @@ export class World {
 
   /**
    * Keeps hulls from overlapping each other (no damage; chaser contact is handled by checkRams).
-   * Uses the same three capsule samples as the island collision, so long hulls separate too.
+   * Uses three capsule samples per ship, so long hulls separate too.
    */
   private separateShips(): void {
-    const ships = [this.player, ...this.enemies.filter((e) => e.alive)];
-    for (let i = 0; i < ships.length; i++) {
-      for (let j = i + 1; j < ships.length; j++) {
-        const a = ships[i], b = ships[j];
-        // A chaser touching the player is a ram (checkRams), never something to push apart.
-        if (a.kind === 'player' && b.kind === 'chaser') continue;
-        if (dist(a.x, a.y, b.x, b.y) > (a.halfLength + a.radius) + (b.halfLength + b.radius)) continue;
-        const minD = a.radius + b.radius + 4;
-        const as = capsuleSamples(a), bs = capsuleSamples(b);
-        for (const [ax, ay] of as) {
-          for (const [bx, by] of bs) {
-            const dx = bx - ax, dy = by - ay;
-            const d = Math.hypot(dx, dy);
-            if (d >= minD || d < 1e-6) continue;
-            const overlap = minD - d;
-            const nx = dx / d, ny = dy / d;
-            // The player is never shoved by enemies; enemies share the correction.
-            const share = a.kind === 'player' ? 0 : 0.5;
-            a.x -= nx * overlap * share; a.y -= ny * overlap * share;
-            b.x += nx * overlap * (1 - share); b.y += ny * overlap * (1 - share);
-          }
-        }
-        this.resolveStatic(a);
-        this.resolveStatic(b);
+    const p = this.player;
+    const enemies = this.enemies;
+    const len = enemies.length;
+
+    // Player vs shooters (chaser touching player is a ram handled by checkRams)
+    for (let i = 0; i < len; i++) {
+      const e = enemies[i];
+      if (e.alive && e.kind !== 'chaser') {
+        this.separatePair(p, e);
       }
     }
+
+    // Enemy vs enemy
+    for (let i = 0; i < len; i++) {
+      const a = enemies[i];
+      if (!a.alive) continue;
+      for (let j = i + 1; j < len; j++) {
+        const b = enemies[j];
+        if (!b.alive) continue;
+        this.separatePair(a, b);
+      }
+    }
+  }
+
+  private separatePair(a: Ship, b: Ship): void {
+    const maxD = (a.halfLength + a.radius) + (b.halfLength + b.radius);
+    if (dist2(a.x, a.y, b.x, b.y) > maxD * maxD) return;
+
+    const minD = a.radius + b.radius + 4;
+    const acx = Math.cos(a.rotation) * a.halfLength;
+    const acy = Math.sin(a.rotation) * a.halfLength;
+    const bcx = Math.cos(b.rotation) * b.halfLength;
+    const bcy = Math.sin(b.rotation) * b.halfLength;
+
+    for (let ak = -1; ak <= 1; ak++) {
+      const ax = a.x + acx * ak;
+      const ay = a.y + acy * ak;
+      for (let bk = -1; bk <= 1; bk++) {
+        const bx = b.x + bcx * bk;
+        const by = b.y + bcy * bk;
+        const dx = bx - ax, dy = by - ay;
+        const d = Math.hypot(dx, dy);
+        if (d >= minD || d < 1e-6) continue;
+        const overlap = minD - d;
+        const nx = dx / d, ny = dy / d;
+        // The player is never shoved by enemies; enemies share the correction.
+        const share = a.kind === 'player' ? 0 : 0.5;
+        a.x -= nx * overlap * share; a.y -= ny * overlap * share;
+        b.x += nx * overlap * (1 - share); b.y += ny * overlap * (1 - share);
+      }
+    }
+    this.resolveStatic(a);
+    this.resolveStatic(b);
   }
 
   // ---------------------------------------------------------------- projectiles
@@ -310,32 +368,39 @@ export class World {
 
   private updateProjectiles(dt: number): void {
     const r = this.config.projectileRadius;
-    const survivors: Projectile[] = [];
-    for (const pr of this.projectiles) {
+    const projs = this.projectiles;
+
+    for (let i = 0; i < projs.length; i++) {
+      const pr = projs[i];
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
       pr.age += dt;
       pr.traveled += Math.hypot(pr.vx, pr.vy) * dt;
 
+      let isDead = false;
+
       if (!insideArena(pr.x, pr.y)) {
         this.events.push({ type: 'projectile-expired', x: pr.x, y: pr.y, reason: 'bounds' });
-        continue;
-      }
-      if (pointInObstacle(pr.x, pr.y, r)) {
+        isDead = true;
+      } else if (pointInObstacle(pr.x, pr.y, r)) {
         this.events.push({ type: 'projectile-expired', x: pr.x, y: pr.y, reason: 'island' });
-        continue;
-      }
-      if (this.resolveProjectileHit(pr, r)) {
+        isDead = true;
+      } else if (this.resolveProjectileHit(pr, r)) {
         if (this.status !== 'running') return;
-        continue;
-      }
-      if (pr.traveled >= pr.range || pr.age >= pr.lifetime) {
+        isDead = true;
+      } else if (pr.traveled >= pr.range || pr.age >= pr.lifetime) {
         this.events.push({ type: 'projectile-expired', x: pr.x, y: pr.y, reason: 'range' });
-        continue;
+        isDead = true;
       }
-      survivors.push(pr);
+
+      if (isDead) {
+        // O(1) in-place swap-and-pop: overwrite with the last element and shrink the array.
+        const last = projs.length - 1;
+        projs[i] = projs[last];
+        projs.length = last;
+        i--;
+      }
     }
-    this.projectiles = survivors;
   }
 
   /** Applies the projectile's damage to at most one target. Returns true when it hit (and is consumed). */
@@ -406,9 +471,9 @@ export class World {
       const along = this.rng.next();
       const x = side === 0 ? m + along * (ARENA.width - 2 * m) : side === 1 ? ARENA.width - m : side === 2 ? m + along * (ARENA.width - 2 * m) : m;
       const y = side === 0 ? m : side === 1 ? m + along * (ARENA.height - 2 * m) : side === 2 ? ARENA.height - m : m + along * (ARENA.height - 2 * m);
-      if (dist(x, y, this.player.x, this.player.y) < cfg.minDistanceFromPlayer) continue;
+      if (dist2(x, y, this.player.x, this.player.y) < cfg.minDistanceFromPlayer * cfg.minDistanceFromPlayer) continue;
       if (pointInObstacle(x, y, HULL.halfLength + HULL.radius + 12)) continue;
-      if (this.enemies.some((e) => e.alive && dist(x, y, e.x, e.y) < 110)) continue;
+      if (this.enemies.some((e) => e.alive && dist2(x, y, e.x, e.y) < 110 * 110)) continue;
       return { x, y };
     }
     return null;
@@ -445,7 +510,7 @@ export class World {
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       const cx = Math.cos(s.rotation), cy = Math.sin(s.rotation);
-      for (const k of [-1, 0, 1]) {
+      for (let k = -1; k <= 1; k++) {
         const px = s.x + cx * k * s.halfLength;
         const py = s.y + cy * k * s.halfLength;
         for (const o of OBSTACLES) {
@@ -497,7 +562,7 @@ export class World {
     if (this.status === 'ended') return;
     this.status = 'ended';
     this.endReason = reason;
-    this.projectiles = [];
+    this.projectiles.length = 0;
     this.events.push({ type: 'ended', reason });
   }
 
@@ -526,27 +591,21 @@ function tickCooldowns(s: Ship, dt: number): void {
   s.cooldowns.right = Math.max(0, s.cooldowns.right - dt);
 }
 
-function capsuleSamples(s: Ship): [number, number][] {
-  const cx = Math.cos(s.rotation) * s.halfLength;
-  const cy = Math.sin(s.rotation) * s.halfLength;
-  return [[s.x - cx, s.y - cy], [s.x, s.y], [s.x + cx, s.y + cy]];
-}
-
-function capsuleEnds(s: Ship): [number, number, number, number] {
-  const cx = Math.cos(s.rotation) * s.halfLength;
-  const cy = Math.sin(s.rotation) * s.halfLength;
-  return [s.x - cx, s.y - cy, s.x + cx, s.y + cy];
-}
-
 function capsulesOverlap(a: Ship, b: Ship, slack: number): boolean {
-  const [a1x, a1y, a2x, a2y] = capsuleEnds(a);
-  const [b1x, b1y, b2x, b2y] = capsuleEnds(b);
+  const acx = Math.cos(a.rotation) * a.halfLength;
+  const acy = Math.sin(a.rotation) * a.halfLength;
+  const bcx = Math.cos(b.rotation) * b.halfLength;
+  const bcy = Math.sin(b.rotation) * b.halfLength;
   const r = a.radius + b.radius + slack;
-  return segmentSegmentDist2(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) <= r * r;
+  return segmentSegmentDist2(
+    a.x - acx, a.y - acy, a.x + acx, a.y + acy,
+    b.x - bcx, b.y - bcy, b.x + bcx, b.y + bcy,
+  ) <= r * r;
 }
 
 function pointHitsShip(x: number, y: number, r: number, s: Ship): boolean {
-  const [ax, ay, bx, by] = capsuleEnds(s);
+  const cx = Math.cos(s.rotation) * s.halfLength;
+  const cy = Math.sin(s.rotation) * s.halfLength;
   const reach = s.radius + r;
-  return pointSegmentDist2(x, y, ax, ay, bx, by) <= reach * reach;
+  return pointSegmentDist2(x, y, s.x - cx, s.y - cy, s.x + cx, s.y + cy) <= reach * reach;
 }

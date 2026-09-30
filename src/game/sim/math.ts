@@ -26,6 +26,13 @@ export function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(bx - ax, by - ay);
 }
 
+/** Squared Euclidean distance between points (ax, ay) and (bx, by). */
+export function dist2(ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  return dx * dx + dy * dy;
+}
+
 /** Squared distance from point P to segment AB. */
 export function pointSegmentDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const abx = bx - ax;

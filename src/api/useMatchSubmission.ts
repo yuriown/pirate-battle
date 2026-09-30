@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { MutationObserver, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { submitMatch, toApiError, type ApiError } from './client';
 import type { MatchRecord, SubmitMatchResponse } from './contracts';
 import { invalidateMatchQueries, noteRevision, retryDelay, shouldRetry } from './queries';
@@ -23,7 +23,7 @@ let boundClient: QueryClient | null = null;
 const inFlight = new Map<string, Promise<void>>();
 
 /**
- * Sends a queued record. A module-level MutationObserver is used instead of `useMutation` so a
+ * Sends a queued record. The MutationCache is used directly instead of `useMutation` so a
  * submission keeps running (and its success/failure is still recorded) after the component that
  * triggered it unmounts, e.g. when the player leaves the result screen to start a new match.
  */
@@ -35,7 +35,7 @@ export function sendMatch(matchId: string): Promise<void> {
   if (!entry || !client) return Promise.resolve();
 
   updateStatus(matchId, (s) => ({ ...s, state: 'sending', lastError: undefined }));
-  const observer = new MutationObserver<SubmitMatchResponse, ApiError, MatchRecord>(client, {
+  const mutation = client.getMutationCache().build<SubmitMatchResponse, ApiError, MatchRecord, unknown>(client, {
     mutationKey: SUBMIT_MUTATION_KEY,
     mutationFn: (record) => {
       updateStatus(record.matchId, (s) => ({ ...s, attempts: s.attempts + 1 }));
@@ -46,8 +46,8 @@ export function sendMatch(matchId: string): Promise<void> {
     networkMode: 'always',
   });
 
-  const chain = observer
-    .mutate(entry.record)
+  const chain = mutation
+    .execute(entry.record)
     .then(
       (response) => {
         markConfirmed(response.record.matchId);
@@ -60,7 +60,6 @@ export function sendMatch(matchId: string): Promise<void> {
     )
     .finally(() => {
       inFlight.delete(matchId);
-      observer.reset();
     });
   inFlight.set(matchId, chain);
   return chain;
