@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatchRecord } from '@/api/contracts';
 import { buildMatchConfig, DEFAULT_GAMEPLAY, type GameplayConfig, type PlayerOptions } from '@/game/config';
 import { GameSession, type HudState, type MatchOutcome } from '@/game/GameSession';
-import { loadGameTextures, type GameTextures } from '@/game/render/assets';
+import { loadGameTextures, subscribeProgress, type GameTextures } from '@/game/render/assets';
 import { createStore, useStore, type Store } from '@/lib/store';
 import { setResultScreenOpen } from '@/lib/lastResult';
 import { testFlags, publishTestApi } from '@/lib/testFlags';
@@ -36,12 +36,17 @@ export function GameScreen({ options, onSaveOptions, onMatchEnd, onExit }: GameS
   useEffect(() => {
     let active = true;
     setLoad({ phase: 'loading', progress: 0 });
-    loadGameTextures((progress) => active && setLoad({ phase: 'loading', progress })).then(
+    const unsubscribe = subscribeProgress((progress) => {
+      if (active) setLoad({ phase: 'loading', progress });
+    });
+
+    loadGameTextures().then(
       (textures) => active && setLoad({ phase: 'ready', textures }),
       (err: unknown) => active && setLoad({ phase: 'error', message: err instanceof Error ? err.message : 'Unknown error' }),
     );
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [attempt]);
 
