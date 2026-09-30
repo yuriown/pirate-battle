@@ -1,0 +1,34 @@
+# Dependências e Lockfiles (gastam muitos tokens)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Pastas de build/distribuição (o AI Studio precisa do código fonte, não do compilado)
+dist/
+build/
+out/
+.next/
+
+# Assets binários (a IA não consegue ler imagens ou sons)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.wav
+*.mp3
+*.ogg
+# *.json (exceto os de configuração, então ignore se tiver jsons gigantes de spritesheet)
+
+assets/spritesheet/*.json
+
+# Cobertura de testes e logs
+coverage/
+playwright-report/
+test-results/
+*.log
+
+# Outros arquivos irrelevantes para review de arquitetura
+.DS_Store
+# README.md (se você já explicou tudo no prompt)
