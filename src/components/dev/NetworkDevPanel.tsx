@@ -58,7 +58,7 @@ export function NetworkDevPanel() {
   };
 
   return (
-    <div className="fixed bottom-3 left-3 z-40 max-w-xs text-xs text-amber-50">
+    <div className="fixed bottom-3 left-3 z-40 text-xs text-amber-50">
       <button
         type="button"
         className="pb-btn pb-btn--secondary"
@@ -75,7 +75,7 @@ export function NetworkDevPanel() {
           id={`${id}-panel`}
           role="region"
           aria-label="Network scenarios"
-          className="mt-2 flex flex-col gap-2 rounded bg-black/80 p-3"
+          className="mt-2 flex w-80 max-w-[calc(100vw-1.5rem)] max-h-[calc(100vh-5rem)] flex-col gap-2 overflow-y-auto rounded bg-black/80 p-3"
         >
           <label className="flex flex-col gap-1">
             Scenario
@@ -124,11 +124,16 @@ export function NetworkDevPanel() {
 
           <p aria-live="polite">Pending submissions: {pending.length}</p>
 
-          <div className="flex gap-2">
-            <button type="button" className="pb-btn pb-btn--secondary" onClick={retryAll} disabled={pending.length === 0}>
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              type="button"
+              className="pb-btn pb-btn--secondary w-full"
+              onClick={retryAll}
+              disabled={pending.length === 0}
+            >
               Retry pending
             </button>
-            <button type="button" className="pb-btn pb-btn--secondary" onClick={reset}>
+            <button type="button" className="pb-btn pb-btn--secondary w-full" onClick={reset}>
               Reset mock data
             </button>
           </div>
